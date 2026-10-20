@@ -1,0 +1,132 @@
+:root {
+  --sd-font: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', system-ui, -apple-system,
+    'Noto Sans CJK SC', sans-serif;
+  --sd-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'JetBrains Mono', 'Noto Sans Mono CJK SC', monospace;
+  --sd-accent: #005fb8;
+  --sd-accent-soft: rgba(0, 95, 184, 0.12);
+  --sd-text: #1b1b1b;
+  --sd-text-2: #5d5d5d;
+  --sd-bg: #f3f3f3;
+  --sd-surface: #fbfbfb;
+  --sd-surface-2: #ffffff;
+  --sd-hover: rgba(0, 0, 0, 0.04);
+  --sd-active: rgba(0, 0, 0, 0.07);
+  --sd-select: rgba(0, 95, 184, 0.14);
+  --sd-border: rgba(0, 0, 0, 0.08);
+  --sd-border-strong: rgba(0, 0, 0, 0.16);
+  --sd-mica: rgba(243, 243, 243, 0.86);
+  --sd-acrylic: rgba(238, 238, 238, 0.78);
+  --sd-taskbar: rgba(238, 238, 238, 0.82);
+  --sd-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+  --sd-shadow-inactive: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --sd-danger: #c42b1c;
+  --sd-warning: #9d5d00;
+  --sd-success: #0f7b0f;
+  --sd-radius: 8px;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --sd-accent: #4cc2ff;
+  --sd-accent-soft: rgba(76, 194, 255, 0.16);
+  --sd-text: #ffffff;
+  --sd-text-2: #c5c5c5;
+  --sd-bg: #202020;
+  --sd-surface: #2b2b2b;
+  --sd-surface-2: #323232;
+  --sd-hover: rgba(255, 255, 255, 0.06);
+  --sd-active: rgba(255, 255, 255, 0.09);
+  --sd-select: rgba(76, 194, 255, 0.2);
+  --sd-border: rgba(255, 255, 255, 0.08);
+  --sd-border-strong: rgba(255, 255, 255, 0.16);
+  --sd-mica: rgba(32, 32, 32, 0.88);
+  --sd-acrylic: rgba(44, 44, 44, 0.8);
+  --sd-taskbar: rgba(28, 28, 28, 0.85);
+  --sd-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --sd-shadow-inactive: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --sd-danger: #ff99a4;
+  --sd-warning: #fce100;
+  --sd-success: #6ccb5f;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--sd-font);
+  font-size: 14px;
+  color: var(--sd-text);
+  background: var(--sd-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.sd-mono {
+  font-family: var(--sd-mono);
+}
+
+.sd-muted {
+  color: var(--sd-text-2);
+}
+
+.sd-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-scroll {
+  overflow: auto;
+}
+
+/* Win11 风格的细滚动条 */
+.sd-scroll::-webkit-scrollbar,
+.sd-thin-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.sd-scroll::-webkit-scrollbar-thumb,
+.sd-thin-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.sd-scroll:hover::-webkit-scrollbar-thumb,
+.sd-thin-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: var(--sd-border-strong);
+}
+
+.sd-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--sd-border);
+  flex-wrap: wrap;
+}
+
+.sd-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.sd-fill {
+  flex: 1;
+  min-height: 0;
+}
+
+.sd-pad {
+  padding: 12px 16px;
+}

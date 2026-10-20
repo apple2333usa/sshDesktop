@@ -1,0 +1,12 @@
+{
+  "extends": "@vue/tsconfig/tsconfig.dom.json",
+  "compilerOptions": {
+    "paths": { "@/*": ["./src/*"] },
+    "types": ["vite/client", "vitest/globals"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.vue", "src/**/*.d.ts"]
+}

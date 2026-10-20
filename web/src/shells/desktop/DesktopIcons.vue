@@ -389,6 +389,7 @@ defineExpose({ reload: load })
   font-size: 12px;
   line-height: 1.25;
   text-align: center;
+  color: #fff;
   text-shadow: 0 0 3px rgba(0, 0, 0, 0.9), 0 1px 2px rgba(0, 0, 0, 0.8);
   max-width: 100%;
   overflow: hidden;

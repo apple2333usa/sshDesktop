@@ -161,6 +161,7 @@ function commitAddress() {
   if (!p.startsWith('/')) p = join(special.value ? '/' : path.value, p)
   p = p.replace(/\/+$/, '') || '/'
   navigate(p)
+  nextTick(() => root.value?.focus())
 }
 
 /* ---------- 搜索 ---------- */

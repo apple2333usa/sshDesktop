@@ -23,7 +23,6 @@ const session = useSession()
 type Section = 'personalize' | 'terminal' | 'account' | 'panel' | 'about'
 const section = ref<Section>((host.props.section as Section) || 'personalize')
 watch(section, (v) => host.setState({ section: v }))
-host.setTitle(t('apps.settings'))
 
 const sections = computed(() =>
   [

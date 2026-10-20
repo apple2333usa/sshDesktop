@@ -23,7 +23,6 @@ const custom = ref<[number, number] | null>(null)
 const loading = ref(false)
 const KEEP = 300
 
-host.setTitle(t('apps.monitor'))
 
 const pct = (a: number, b: number) => (b ? (a / b) * 100 : 0)
 const fmtPct = (v: number) => `${v.toFixed(v < 10 ? 1 : 0)}%`

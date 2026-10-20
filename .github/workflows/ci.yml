@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go 测试
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+
+  web:
+    name: 前端检查
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  build:
+    name: 构建二进制
+    runs-on: ubuntu-24.04
+    needs: [go, web]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make dist
+      - name: 冒烟测试
+        run: |
+          ./dist/sshdesktop-linux-amd64 version
+          mkdir -p /tmp/sd && printf 'port: 33399\ndataDir: /tmp/sd\nlogDir: ""\n' > /tmp/sd/config.yaml
+          ./dist/sshdesktop-linux-amd64 -c /tmp/sd/config.yaml server &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:33399/api/v1/health && break; sleep 0.5; done
+          curl -fsS http://127.0.0.1:33399/ | grep -q '<div id="app">'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sshdesktop-binaries
+          path: dist/

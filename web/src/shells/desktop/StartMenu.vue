@@ -196,7 +196,7 @@ const shortcuts = [
           <span class="h">{{ t('start.allApps') }}</span>
           <button class="link" @click="showAll = false">‹ {{ t('start.back') }}</button>
         </div>
-        <div v-for="a in sortedApps" :key="a.id" class="row" @click="open(a.id)">
+        <div v-for="a in sortedApps" :key="a.id" class="row" :data-testid="'start-all-app-' + a.id" @click="open(a.id)">
           <SdIcon :name="a.icon" :size="24" /> <span>{{ t(a.title) }}</span>
         </div>
       </template>

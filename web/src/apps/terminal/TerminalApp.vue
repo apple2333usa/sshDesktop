@@ -410,7 +410,7 @@ const gridStyle = computed(() => {
   gap: 2px;
   flex-shrink: 0;
 }
-.dark .actions :deep(.n-button) {
+.dark .bar :deep(.n-button) {
   color: #ddd;
 }
 .root {

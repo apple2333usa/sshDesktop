@@ -21,7 +21,6 @@ const session = useSession()
 const hostInfo = useHost()
 const base = '/nodes/local/services'
 
-host.setTitle(t('apps.services'))
 
 const units = ref<Unit[]>([])
 const loading = ref(false)

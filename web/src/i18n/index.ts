@@ -32,7 +32,7 @@ export function formatBytes(n: number, digits = 1): string {
     n /= 1024
     i++
   }
-  return `${i === 0 ? n : n.toFixed(digits)} ${units[i]}`
+  return `${i === 0 ? Math.round(n) : n.toFixed(digits)} ${units[i]}`
 }
 
 export function formatRate(n: number): string {

@@ -6,13 +6,10 @@ import { NButton, NDataTable, NDatePicker, NInput, NSelect, NTag, useMessage, ty
 import { api, buildQuery } from '@/api/http'
 import type { AuditRow } from '@/api/types'
 import { triggerDownload } from '@/api/files'
-import { useAppHost } from '@/apps/host'
 import { errorText, formatTime } from '@/i18n'
 
-const host = useAppHost()
 const { t } = useI18n()
 const message = useMessage()
-host.setTitle(t('apps.audit'))
 
 const items = ref<AuditRow[]>([])
 const modules = ref<string[]>([])
@@ -69,7 +66,7 @@ const resultOptions = computed(() => [
 ])
 
 const columns = computed<DataTableColumns<AuditRow>>(() => [
-  { title: t('audit.time'), key: 'at', width: 160, render: (r) => formatTime(r.at, true) },
+  { title: t('audit.time'), key: 'at', width: 170, render: (r) => formatTime(r.at, true) },
   { title: t('audit.user'), key: 'username', width: 100, render: (r) => r.username || '-' },
   { title: 'IP', key: 'ip', width: 130 },
   { title: t('audit.module'), key: 'module', width: 100, render: (r) => moduleLabel(r.module) },

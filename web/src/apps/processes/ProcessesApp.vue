@@ -22,7 +22,6 @@ const session = useSession()
 const hostInfo = useHost()
 const base = '/nodes/local/processes'
 
-host.setTitle(t('apps.processes'))
 
 const procs = ref<Proc[]>([])
 const memTotal = ref(0)

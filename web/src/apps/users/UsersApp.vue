@@ -20,7 +20,6 @@ const session = useSession()
 
 const tab = ref<string>((host.props.tab as string) || 'users')
 watch(tab, (v) => host.setState({ tab: v }))
-host.setTitle(t('apps.users'))
 
 const users = ref<UserRow[]>([])
 const roles = ref<RoleRow[]>([])
@@ -146,9 +145,9 @@ const userColumns = computed<DataTableColumns<UserRow>>(() => [
         'onUpdate:value': (v: boolean) => updateUser(u, { disabled: !v }),
       }),
   },
-  { title: t('users.lastLogin'), key: 'lastLoginAt', width: 150, render: (u) => formatTime(u.lastLoginAt) },
+  { title: t('users.lastLogin'), key: 'lastLoginAt', width: 160, render: (u) => formatTime(u.lastLoginAt) },
   { title: t('users.lastIp'), key: 'lastLoginIp', width: 140, render: (u) => u.lastLoginIp || '-' },
-  { title: t('users.createdAt'), key: 'createdAt', width: 150, render: (u) => formatTime(u.createdAt) },
+  { title: t('users.createdAt'), key: 'createdAt', width: 160, render: (u) => formatTime(u.createdAt) },
   {
     title: '',
     key: 'ops',

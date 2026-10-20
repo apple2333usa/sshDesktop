@@ -60,7 +60,7 @@ export default {
     m: '{m} 分钟',
   },
   login: {
-    hint: '登录到服务器面板',
+    hint: '点击或按任意键登录',
     username: '用户名',
     password: '密码',
     submit: '登录',

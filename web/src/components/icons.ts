@@ -99,6 +99,25 @@ export const appIcons: Record<string, string> = {
 }
 
 export const fileIcons: Record<string, string> = {
+  docker:
+    `${g('dkB', '#2aa4f4', '#0b6fc4')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#dkB)"/>` +
+    `<path d="M9 25h29c1.5 0 2.5-1.2 3-2.5.5 1 .3 2.5-.6 3.4C39 32 33 37 24 37c-8 0-13.5-4.4-15-12z" fill="#fff"/>` +
+    `<g fill="#fff"><rect x="12" y="19" width="4.5" height="4" rx=".6"/><rect x="17.5" y="19" width="4.5" height="4" rx=".6"/>` +
+    `<rect x="23" y="19" width="4.5" height="4" rx=".6"/><rect x="28.5" y="19" width="4.5" height="4" rx=".6"/>` +
+    `<rect x="17.5" y="14" width="4.5" height="4" rx=".6"/><rect x="23" y="14" width="4.5" height="4" rx=".6"/><rect x="23" y="9" width="4.5" height="4" rx=".6"/></g>`,
+  appstore:
+    `${g('asB', '#ff7a59', '#e0452b')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#asB)"/>` +
+    `<path d="M13 18h22l-2 15a3 3 0 0 1-3 2.6H18a3 3 0 0 1-3-2.6z" fill="#fff"/>` +
+    `<path d="M19 18v-2a5 5 0 0 1 10 0v2" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/>` +
+    `<path d="M24 22v8M20 26h8" stroke="#e0452b" stroke-width="2.6" stroke-linecap="round"/>`,
+  cron:
+    `${g('crB', '#34c38f', '#14945f')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#crB)"/>` +
+    `<circle cx="24" cy="24.5" r="12" fill="#fff"/><path d="M24 17v8l5 3" stroke="#14945f" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `<path d="M33 11l4 3M15 11l-4 3" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`,
+  backup:
+    `${g('bkB', '#5b7cfa', '#3451d1')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#bkB)"/>` +
+    `<path d="M15 33a7 7 0 0 1-.6-14A9 9 0 0 1 32 17.5a6.5 6.5 0 0 1 1 15.5z" fill="#fff"/>` +
+    `<path d="M24 31v-9M20 25.5l4-4 4 4" stroke="#3451d1" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
   folder: folder(),
   file: doc('#9e9e9e', ''),
   text: doc('#607d8b', label('TXT')),

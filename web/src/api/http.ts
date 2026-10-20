@@ -29,6 +29,11 @@ export const Codes = {
   HostKeyChanged: 6001,
   NodeOffline: 6002,
   AgentFailed: 6003,
+  DockerUnavailable: 7001,
+  PortInUse: 7002,
+  AppUnsupported: 7003,
+  CronUnavailable: 8001,
+  BackupFailed: 8002,
 } as const
 
 export interface RequestOptions {

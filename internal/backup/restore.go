@@ -351,7 +351,7 @@ func (e *Engine) restoreApp(ctx context.Context, m Manifest, req RestoreRequest,
 	}
 	res.Files = n
 	row.Dir = dest
-	row.Status = "running"
+	row.Status = "installed"
 	row.Message = ""
 	row.UpdatedAt = time.Now()
 	if row.CreatedAt.IsZero() {
@@ -366,7 +366,7 @@ func (e *Engine) restoreApp(ctx context.Context, m Manifest, req RestoreRequest,
 	}
 	log("启动应用 %s", row.Name)
 	if err := docker.Compose(ctx, appProject(row), w2(log), "up", "-d", "--remove-orphans"); err != nil {
-		e.Store.DB.Model(&row).Updates(map[string]any{"status": "error", "message": err.Error()})
+		e.Store.DB.Model(&row).Updates(map[string]any{"status": "failed", "message": err.Error()})
 		return res, fmt.Errorf("文件已恢复，但启动失败：%w", err)
 	}
 	log("应用 %s 已恢复并启动", row.Name)

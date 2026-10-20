@@ -51,13 +51,14 @@ function persist() {
     tabs: tabs.value.map((x) => ({ panes: x.panes, layout: x.layout, focus: x.focus })),
     activeTab: activeTab.value,
     cwd: undefined,
+    container: undefined,
   })
 }
 watch([tabs, activeTab], persist, { deep: true })
 
-async function createSession(dir?: string, n = node): Promise<string | null> {
+async function createSession(dir?: string, n = node, container?: string): Promise<string | null> {
   try {
-    const s = await api.post<TerminalSession>(base(n), { cols: 120, rows: 32, dir: dir ?? '' })
+    const s = await api.post<TerminalSession>(base(n), { cols: 120, rows: 32, dir: dir ?? '', container: container ?? '' })
     return keyOf(n, s.id)
   } catch (e) {
     message.error(errorText(e))
@@ -65,8 +66,8 @@ async function createSession(dir?: string, n = node): Promise<string | null> {
   }
 }
 
-async function newTab(dir?: string, key?: string, n = node) {
-  const id = key ?? (await createSession(dir, n))
+async function newTab(dir?: string, key?: string, n = node, container?: string) {
+  const id = key ?? (await createSession(dir, n, container))
   if (!id) return
   tabs.value.push({ id: ++seq, panes: [id], layout: 'h', focus: 0 })
   activeTab.value = tabs.value.length - 1
@@ -271,8 +272,10 @@ onMounted(async () => {
       message.error(errorText(e))
     }
   }
-  if (!tabs.value.length) await newTab(host.props.cwd as string | undefined)
-  else if (host.props.cwd) await newTab(host.props.cwd as string)
+  // 从 Docker 打开容器终端时 props.container 为容器 ID
+  const container = host.props.container as string | undefined
+  if (!tabs.value.length) await newTab(host.props.cwd as string | undefined, undefined, node, container)
+  else if (host.props.cwd || container) await newTab(host.props.cwd as string | undefined, undefined, node, container)
   if (!tabs.value.length) host.close()
 })
 

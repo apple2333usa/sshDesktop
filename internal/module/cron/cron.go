@@ -42,6 +42,9 @@ type Service struct {
 
 func New(d Deps) *Service { return &Service{d: d, cronFile: CronFile, systemRoot: "/"} }
 
+// CronFilePath 返回 cron 文件路径。
+func (s *Service) CronFilePath() string { return s.cronFile }
+
 // SetPaths 仅用于测试：把 cron 文件和系统 crontab 的根目录指向临时目录。
 func (s *Service) SetPaths(cronFile, systemRoot string) {
 	s.cronFile, s.systemRoot = cronFile, systemRoot
@@ -99,6 +102,9 @@ func Render(jobs []store.CronJob, bin, config string) string {
 func (s *Service) Sync() error {
 	var jobs []store.CronJob
 	s.d.Store.DB.Order("id").Find(&jobs)
+	if _, err := os.Stat(s.cronFile); len(jobs) == 0 && os.IsNotExist(err) {
+		return nil // 没有任务时不必创建文件
+	}
 	dir := filepath.Dir(s.cronFile)
 	if _, err := os.Stat(dir); err != nil {
 		return api.Err(503, api.CodeCronUnavailable, "系统没有 "+dir+"，请先安装 cron")

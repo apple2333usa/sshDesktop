@@ -3,6 +3,7 @@ package backup
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,8 @@ type Manifest struct {
 	Host      string    `json:"host"`
 	Version   string    `json:"version"`
 	CreatedAt time.Time `json:"createdAt"`
+	// KeyID 是面板备份时主密钥的指纹
+	KeyID string `json:"keyId,omitempty"`
 	// App 是应用备份时的安装记录（JSON），用于在新服务器上恢复
 	App json.RawMessage `json:"app,omitempty"`
 }
@@ -89,9 +92,12 @@ func (e Excluder) Match(rel string) bool {
 }
 
 // addDir 把目录 root 打包到 prefix 下（prefix 为空时放在包的根目录）。不跟随符号链接，跳过 socket 等特殊文件。
-func (t *tarWriter) addDir(root, prefix string, ex Excluder, log func(string, ...any)) error {
+func (t *tarWriter) addDir(ctx context.Context, root, prefix string, ex Excluder, log func(string, ...any)) error {
 	root = filepath.Clean(root)
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			if p == root {
 				return err
@@ -213,8 +219,9 @@ func extract(r io.Reader, dst, strip string) (Manifest, int, error) {
 	tr := tar.NewReader(gz)
 	files := 0
 	type dirTime struct {
-		p string
-		t time.Time
+		p    string
+		t    time.Time
+		mode os.FileMode
 	}
 	var dirs []dirTime
 	for {
@@ -230,12 +237,19 @@ func extract(r io.Reader, dst, strip string) (Manifest, int, error) {
 			continue
 		}
 		name := path.Clean(strings.TrimPrefix(h.Name, "./"))
+		if path.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
+			return m, files, fmt.Errorf("备份文件包含非法路径：%s", h.Name)
+		}
 		if strip != "" {
 			if name != strip && !strings.HasPrefix(name, strip+"/") {
 				continue
 			}
 			name = strings.TrimPrefix(strings.TrimPrefix(name, strip), "/")
 			if name == "" {
+				if h.Typeflag == tar.TypeDir { // 前缀目录自身对应 dst
+					os.Lchown(dst, h.Uid, h.Gid)
+					dirs = append(dirs, dirTime{dst, h.ModTime, os.FileMode(h.Mode) & os.ModePerm})
+				}
 				continue
 			}
 		}
@@ -249,9 +263,8 @@ func extract(r io.Reader, dst, strip string) (Manifest, int, error) {
 			if err := os.MkdirAll(p, 0o700); err != nil {
 				return m, files, err
 			}
-			os.Chmod(p, mode|0o700&mode)
 			os.Lchown(p, h.Uid, h.Gid)
-			dirs = append(dirs, dirTime{p, h.ModTime})
+			dirs = append(dirs, dirTime{p, h.ModTime, mode})
 			continue
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -285,7 +298,9 @@ func extract(r io.Reader, dst, strip string) (Manifest, int, error) {
 		}
 		os.Chtimes(p, h.ModTime, h.ModTime)
 	}
+	// 目录权限最后设置，避免只读目录挡住其中文件的解压
 	for i := len(dirs) - 1; i >= 0; i-- {
+		os.Chmod(dirs[i].p, dirs[i].mode)
 		os.Chtimes(dirs[i].p, dirs[i].t, dirs[i].t)
 	}
 	return m, files, nil

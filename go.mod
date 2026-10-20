@@ -7,6 +7,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/gin-gonic/gin v1.12.0
+	github.com/minio/minio-go/v7 v7.4.1
 	github.com/ncruces/go-sqlite3/gormlite v0.34.0
 	github.com/pkg/sftp v1.13.11
 	github.com/shirou/gopsutil/v4 v4.26.9
@@ -53,7 +54,6 @@ require (
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
-	github.com/minio/minio-go/v7 v7.4.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/ncruces/go-sqlite3 v0.34.0 // indirect

@@ -275,6 +275,8 @@ func (s *s3Storage) Close() error { return nil }
 
 type davStorage struct {
 	base     *url.URL // 以 / 结尾
+	root     *url.URL // 用户填写的服务地址（假定已存在），base = root + 目录
+	sub      string   // 目录（相对 root）
 	user     string
 	password string
 	hc       *http.Client
@@ -286,9 +288,11 @@ func NewWebDAV(cfg TargetConfig, sec TargetSecret) (Storage, error) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return nil, errors.New("WebDAV 地址应以 http:// 或 https:// 开头")
 	}
-	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.Trim(cfg.Path, "/")
 	u.Path = strings.TrimRight(u.Path, "/") + "/"
-	return &davStorage{base: u, user: cfg.Username, password: sec.Password, hc: &http.Client{Timeout: 0}}, nil
+	root := *u
+	sub := strings.Trim(cfg.Path, "/")
+	u.Path = strings.TrimRight(u.Path+sub, "/") + "/"
+	return &davStorage{base: u, root: &root, sub: sub, user: cfg.Username, password: sec.Password, hc: &http.Client{Timeout: 0}}, nil
 }
 
 func (d *davStorage) url(rel string) string {
@@ -326,24 +330,33 @@ func davErr(resp *http.Response, what string) error {
 	return fmt.Errorf("%s失败：HTTP %d %s", what, resp.StatusCode, msg)
 }
 
-// mkcol 逐级创建目录（已存在时服务器返回 405，忽略）。
+// mkcol 从服务地址开始逐级创建目录（已存在时服务器返回 405，忽略）。
 func (d *davStorage) mkcol(ctx context.Context, dir string) error {
-	parts := strings.Split(strings.Trim(dir, "/"), "/")
+	full := strings.Trim(path.Join(d.sub, dir), "/")
+	if full == "" || full == "." {
+		return nil
+	}
 	cur := ""
-	// 根目录本身也可能不存在
-	for i := -1; i < len(parts); i++ {
-		if i >= 0 {
-			if parts[i] == "" {
-				continue
-			}
-			cur += url.PathEscape(parts[i]) + "/"
+	for _, p := range strings.Split(full, "/") {
+		if p == "" || p == "." {
+			continue
 		}
-		resp, err := d.do(ctx, "MKCOL", cur, nil, -1, nil)
+		cur += p + "/"
+		u := *d.root
+		u.Path += cur
+		req, err := http.NewRequestWithContext(ctx, "MKCOL", u.String(), nil)
+		if err != nil {
+			return err
+		}
+		if d.user != "" || d.password != "" {
+			req.SetBasicAuth(d.user, d.password)
+		}
+		resp, err := d.hc.Do(req)
 		if err != nil {
 			return err
 		}
 		resp.Body.Close()
-		if resp.StatusCode >= 400 && resp.StatusCode != http.StatusMethodNotAllowed && resp.StatusCode != http.StatusConflict {
+		if resp.StatusCode >= 400 && resp.StatusCode != http.StatusMethodNotAllowed {
 			return davErr(resp, "创建目录")
 		}
 	}

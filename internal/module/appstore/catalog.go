@@ -524,7 +524,17 @@ func compareVersions(a, b string) int {
 			return strings.Compare(x, y)
 		}
 	}
-	return len(pa) - len(pb)
+	// 多出的段都是 0 时视为相同（1.2 与 1.2.0）
+	rest, sign := pa[min(len(pa), len(pb)):], 1
+	if len(pb) > len(pa) {
+		rest, sign = pb[len(pa):], -1
+	}
+	for _, x := range rest {
+		if n, ok := num(x); !ok || n != 0 {
+			return sign
+		}
+	}
+	return 0
 }
 
 func splitVersion(v string) []string {

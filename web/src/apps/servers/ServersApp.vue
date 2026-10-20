@@ -218,7 +218,8 @@ function menu(n: NodeView): DropdownOption[] {
     { key: 'reconnect', label: t('servers.reconnect'), show: canManage.value && remote },
     { key: 'hostkey', label: t('servers.accept'), show: canManage.value && remote && n.status.state === 'hostkey-mismatch' },
     { key: 'install', label: o?.source === 'agent' ? t('servers.reinstall') : t('servers.install'), show: canManage.value && remote && o?.source !== 'panel' },
-    { key: 'uninstall', label: t('servers.uninstall'), show: canManage.value && remote && o?.source === 'agent' },
+    // 来源是“无 agent”时也提供卸载：用于清理安装到一半、接口不可用的 agent
+    { key: 'uninstall', label: t('servers.uninstall'), show: canManage.value && remote && (o?.source === 'agent' || o?.source === 'ssh') },
     { type: 'divider', key: 'd2', show: canManage.value && remote },
     { key: 'delete', label: t('common.delete'), show: canManage.value && remote, props: { style: 'color: var(--sd-danger, #d13438)' } },
   ]

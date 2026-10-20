@@ -85,13 +85,18 @@ func Serve(ctx context.Context, path string, p Provider, version string, panel b
 		return err
 	}
 	os.Chmod(path, 0o666)
+	defer os.Remove(path)
+	return ServeListener(ctx, ln, p, version, panel)
+}
+
+// ServeListener 在已经打开的监听 socket 上提供 agent 接口，直到 ctx 结束（独立 agent 由 systemd socket 激活时使用）。
+func ServeListener(ctx context.Context, ln net.Listener, p Provider, version string, panel bool) error {
 	srv := &http.Server{Handler: Handler(p, version, panel), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		srv.Close()
-		os.Remove(path)
 	}()
-	err = srv.Serve(ln)
+	err := srv.Serve(ln)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

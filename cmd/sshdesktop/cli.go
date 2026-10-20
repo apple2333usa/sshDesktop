@@ -11,6 +11,7 @@ import (
 
 	sshdesktop "github.com/apple2333usa/sshdesktop"
 	"github.com/apple2333usa/sshdesktop/internal/auth"
+	"github.com/apple2333usa/sshdesktop/internal/config"
 	"github.com/apple2333usa/sshdesktop/internal/rbac"
 	"github.com/apple2333usa/sshdesktop/internal/store"
 	"github.com/spf13/cobra"
@@ -251,9 +252,9 @@ func configCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for _, k := range []string{"port", "domain", "https", "https.cert", "https.key", "log-level", "data-dir", "log-dir"} {
+			for _, k := range config.Keys {
 				v, _ := cfg.Get(k)
-				fmt.Printf("%-11s %s\n", k, v)
+				fmt.Printf("%-12s %s\n", k, v)
 			}
 			return nil
 		},

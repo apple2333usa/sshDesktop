@@ -631,7 +631,7 @@ export default {
     reinstall: '重新安装 agent',
     uninstall: '卸载 agent',
     installAction: '在远程服务器上安装 agent',
-    installImpact1: '上传 /usr/local/bin/sshdesktop-agent 和 sshdesktop-agent.service，以 systemd 服务运行（DynamicUser，只读）',
+    installImpact1: '上传 /usr/local/bin/sshdesktop-agent 和 sshdesktop-agent.service / .socket，以 systemd 服务运行（DynamicUser，只读）',
     installImpact2: '需要 root 或 sudo 权限；远程服务器不需要访问外网',
     uninstallAction: '卸载远程服务器上的 agent',
     uninstallImpact: '停止并删除 sshdesktop-agent 服务和程序，保存在 agent 中的历史数据会丢失',

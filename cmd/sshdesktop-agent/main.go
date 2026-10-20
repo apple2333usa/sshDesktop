@@ -68,8 +68,20 @@ func main() {
 		}
 	}
 	go p.col.Run(ctx)
-	slog.Info("sshdesktop-agent 已启动", "version", version, "socket", *socket)
-	if err := agent.Serve(ctx, *socket, p, version, false); err != nil {
+	// 由 sshdesktop-agent.socket 激活时使用 systemd 传入的 socket，否则自己监听 -socket
+	ln, err := agent.ActivationListener()
+	if err != nil {
+		slog.Error("读取 systemd 传入的 socket 失败", "err", err)
+		os.Exit(1)
+	}
+	if ln != nil {
+		slog.Info("sshdesktop-agent 已启动", "version", version, "socket", ln.Addr().String(), "systemd", true)
+		err = agent.ServeListener(ctx, ln, p, version, false)
+	} else {
+		slog.Info("sshdesktop-agent 已启动", "version", version, "socket", *socket)
+		err = agent.Serve(ctx, *socket, p, version, false)
+	}
+	if err != nil {
 		slog.Error("agent 接口启动失败", "err", err)
 		os.Exit(1)
 	}

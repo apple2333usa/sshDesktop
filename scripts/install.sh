@@ -72,10 +72,11 @@ esac
 OS_ID=unknown
 OS_VER=""
 if [ -r /etc/os-release ]; then
+  # 在子 shell 中读取：os-release 自带 VERSION 等变量，直接 source 会覆盖本脚本的 VERSION
   # shellcheck disable=SC1091
-  . /etc/os-release
-  OS_ID="${ID:-unknown}"
-  OS_VER="${VERSION_ID:-}"
+  OS_ID=$(. /etc/os-release && echo "${ID:-unknown}")
+  # shellcheck disable=SC1091
+  OS_VER=$(. /etc/os-release && echo "${VERSION_ID:-}")
 fi
 case "$OS_ID:${OS_VER%%.*}" in
   ubuntu:22 | ubuntu:24 | ubuntu:26 | debian:12 | debian:13 | rocky:9 | rocky:10 | almalinux:9 | almalinux:10) ;;

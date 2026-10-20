@@ -25,3 +25,9 @@
 - 简介：在测试服务器（Debian 13 arm64，root，SSH 端口非默认）用 `install.sh --binary` 安装 M1 并跑 e2e。发现安装脚本和 `sshdesktop info` 打印的 SSH 隧道命令有误：安装脚本按 `sshd` 子串匹配到了面板自己的进程（`sshdesktop`），把面板端口当成 SSH 端口，且给出云服务器网卡上的内网 IP；`info` 用主机名作地址且不带 SSH 端口。现改为：SSH 端口优先取 `sshd -T` 的生效配置（安装脚本再以精确匹配 `"sshd"` 的 `ss` 结果兜底），地址只给公网 IPv4，网卡上只有内网地址（含 CGNAT）时给 `<服务器IP>` 占位。另把 `upgrade.go` 按 gofmt 格式化。
 - 对应文件：`scripts/install.sh`、`cmd/sshdesktop/cli.go`、`cmd/sshdesktop/upgrade.go`
 - 验证与限制：服务器上安装成功，健康检查、systemd 自启、仅监听 127.0.0.1:33333、日志无报错；经 SSH 隧道跑 Playwright e2e 11 项（含截图）全部通过，服务列表断言在真实 systemd 下通过。修正后容器内 `go vet`、`go test ./...` 通过，端口与内网地址判断用样例输出验证；修正后的输出还需在服务器上复核。
+
+## 2026-10-20 18:38 +08:00 · 0.1.0 · 发布 v0.1.0 与安装脚本版本变量修正
+
+- 简介：在 `dee3141` 打 `v0.1.0` 标签，发布流程产出 `sshdesktop-linux-amd64`、`sshdesktop-linux-arm64`、`SHA256SUMS`。在测试服务器用一键安装命令复核时下载失败：安装脚本直接 `source /etc/os-release`，其中的 `VERSION`（如 `13 (trixie)`）覆盖了脚本自己的 `VERSION`，拼出非法下载地址；主流发行版都带该变量，`--version` 参数同样会被覆盖。现改为在子 shell 中读取 `ID`、`VERSION_ID`。
+- 对应文件：`scripts/install.sh`
+- 验证与限制：修正后的脚本在测试服务器（Debian 13 arm64）上走真实下载与 SHA-256 校验，安装成功，沿用原配置和账号；健康检查正常，服务 active；安装输出与 `sshdesktop info` 的隧道命令均为 `-p 5522 root@<服务器IP>`。v0.1.0 标签内的 `install.sh` 仍是旧版，一键安装命令取 main 分支，不受影响。

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/apple2333usa/sshdesktop/internal/api"
+	"github.com/apple2333usa/sshdesktop/internal/node"
 	"github.com/apple2333usa/sshdesktop/internal/vfs"
 	"github.com/gin-gonic/gin"
 )
@@ -207,6 +208,13 @@ func (s *Service) download(c *gin.Context) {
 		return
 	}
 	api.Target(c, strings.Join(paths, ", "))
+	if n, err := s.d.Nodes.Get(c.Param("node")); err == nil {
+		release, err := node.AcquireTransfer(c.Request.Context(), n)
+		if err != nil {
+			return
+		}
+		defer release()
+	}
 	if len(paths) == 1 {
 		fi, err := f.Stat(paths[0])
 		if err != nil {

@@ -19,7 +19,9 @@ type Service struct {
 	Source func(id string) string
 }
 
-func New(st *store.Store, source func(string) string) *Service { return &Service{st: st, Source: source} }
+func New(st *store.Store, source func(string) string) *Service {
+	return &Service{st: st, Source: source}
+}
 
 func (s *Service) Register(v1 *gin.RouterGroup, n *gin.RouterGroup, view, manage gin.HandlerFunc, audit func(string, string) gin.HandlerFunc) {
 	v1.GET("/traffic/summary", view, s.summary)

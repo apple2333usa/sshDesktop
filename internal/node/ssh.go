@@ -549,7 +549,19 @@ func (n *SSH) ExecInput(ctx context.Context, stdin io.Reader, name string, args 
 
 // RunScript 用登录用户的 shell 执行一段脚本，输出（含 stderr）实时写入 out。
 func (n *SSH) RunScript(ctx context.Context, script string, out io.Writer) (int, error) {
-	return n.run(ctx, script, nil, out, out)
+	w := &syncWriter{w: out} // stdout 和 stderr 由两个 goroutine 同时写入
+	return n.run(ctx, script, nil, w, w)
+}
+
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
 }
 
 // Start 启动一个长时间运行的命令行（例如采集循环），返回其输出流；ctx 结束时停止。

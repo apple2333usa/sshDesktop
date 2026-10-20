@@ -13,15 +13,18 @@ import (
 	"syscall"
 
 	"github.com/apple2333usa/sshdesktop/internal/api"
+	"github.com/apple2333usa/sshdesktop/internal/node"
 	"github.com/apple2333usa/sshdesktop/internal/task"
 	"github.com/apple2333usa/sshdesktop/internal/vfs"
 	"github.com/gin-gonic/gin"
 )
 
-// paste 复制或移动（剪切）文件到目标目录，作为后台任务执行。
+// paste 复制或移动（剪切）文件到目标目录，作为后台任务执行。srcNode 为源文件所在节点（默认与目标相同）；
+// 跨节点时由面板中转流式传输，移动等于复制后删除源文件。
 func (s *Service) paste(c *gin.Context) {
 	var req struct {
 		Sources  []string `json:"sources"`
+		SrcNode  string   `json:"srcNode"`
 		Dest     string   `json:"dest"`
 		Mode     string   `json:"mode"`     // copy / move
 		Conflict string   `json:"conflict"` // rename（默认）/ overwrite / skip
@@ -29,10 +32,20 @@ func (s *Service) paste(c *gin.Context) {
 	if !api.Bind(c, &req) {
 		return
 	}
-	f, ok := s.fs(c)
-	if !ok {
+	dstNode, err := s.d.Nodes.Get(c.Param("node"))
+	if err != nil {
+		api.Fail(c, api.NotFound("节点不存在"))
 		return
 	}
+	srcNode := dstNode
+	if req.SrcNode != "" && req.SrcNode != dstNode.ID() {
+		if srcNode, err = s.d.Nodes.Get(req.SrcNode); err != nil {
+			api.Fail(c, api.NotFound("源节点不存在"))
+			return
+		}
+	}
+	cross := srcNode.ID() != dstNode.ID()
+	f, sf := dstNode.FS(), srcNode.FS()
 	dest, err := cleanPath(req.Dest)
 	if err != nil {
 		api.Fail(c, err)
@@ -57,17 +70,35 @@ func (s *Service) paste(c *gin.Context) {
 			api.Fail(c, err)
 			return
 		}
-		if dest == p || strings.HasPrefix(dest, p+"/") {
+		if !cross && (dest == p || strings.HasPrefix(dest, p+"/")) {
 			api.Fail(c, api.BadRequest("不能把目录粘贴到它自身或其子目录中："+p))
 			return
 		}
 		srcs = append(srcs, p)
 	}
-	api.Target(c, fmt.Sprintf("%s %s -> %s", req.Mode, strings.Join(srcs, ", "), dest))
+	from := ""
+	if cross {
+		from = srcNode.ID() + ":"
+	}
+	api.Target(c, fmt.Sprintf("%s %s%s -> %s", req.Mode, from, strings.Join(srcs, ", "), dest))
 	verb := map[string]string{"copy": "复制", "move": "移动"}[req.Mode]
 	title := fmt.Sprintf("%s %d 项到 %s", verb, len(srcs), dest)
+	if cross {
+		title = fmt.Sprintf("%s %d 项（%s → %s）到 %s", verb, len(srcs), srcNode.ID(), dstNode.ID(), dest)
+	}
 	t := s.d.Tasks.Start("files.paste", title, api.User(c).UserID, c.Param("node"), func(ctx context.Context, t *task.Task) error {
-		return doPaste(ctx, t, f, srcs, dest, req.Mode, req.Conflict)
+		if !cross {
+			return doPaste(ctx, t, f, f, srcs, dest, req.Mode, req.Conflict)
+		}
+		// 跨节点传输占用两端的传输名额
+		for _, n := range []node.Node{srcNode, dstNode} {
+			release, err := node.AcquireTransfer(ctx, n)
+			if err != nil {
+				return err
+			}
+			defer release()
+		}
+		return doPaste(ctx, t, sf, f, srcs, dest, req.Mode, req.Conflict)
 	})
 	api.OK(c, t)
 }
@@ -84,13 +115,15 @@ func (p *progress) add(n int64) {
 	}
 }
 
-func doPaste(ctx context.Context, t *task.Task, f vfs.FS, srcs []string, dest, mode, conflict string) error {
+// doPaste 把 sf 上的 srcs 复制或移动到 f 的 dest 目录。sf 与 f 是同一个文件系统时移动直接改名。
+func doPaste(ctx context.Context, t *task.Task, sf, f vfs.FS, srcs []string, dest, mode, conflict string) error {
+	same := sf == f
 	pr := &progress{t: t}
 	for _, src := range srcs {
-		if sz, _, _, err := walkSize(ctx, f, src); err == nil {
+		if sz, _, _, err := walkSize(ctx, sf, src); err == nil {
 			pr.total += sz
 		}
-		if fi, err := f.Lstat(src); err == nil && !fi.IsDir() {
+		if fi, err := sf.Lstat(src); err == nil && !fi.IsDir() {
 			pr.total += fi.Size()
 		}
 	}
@@ -100,7 +133,7 @@ func doPaste(ctx context.Context, t *task.Task, f vfs.FS, srcs []string, dest, m
 		}
 		name := path.Base(src)
 		target := path.Join(dest, name)
-		if target == src {
+		if same && target == src {
 			if mode == "move" {
 				continue // 移动到原位置，无事可做
 			}
@@ -119,25 +152,27 @@ func doPaste(ctx context.Context, t *task.Task, f vfs.FS, srcs []string, dest, m
 			}
 		}
 		if mode == "move" {
-			err := f.Rename(src, target)
-			if err == nil {
-				t.Log("已移动 %s -> %s", src, target)
-				continue
+			if same {
+				err := f.Rename(src, target)
+				if err == nil {
+					t.Log("已移动 %s -> %s", src, target)
+					continue
+				}
+				if !isCrossDevice(err) {
+					return err
+				}
 			}
-			if !isCrossDevice(err) {
+			// 跨文件系统或跨节点：先复制再删除
+			if err := copyTree(ctx, sf, src, f, target, pr, same); err != nil {
 				return err
 			}
-			// 跨文件系统：先复制再删除
-			if err := copyTree(ctx, f, src, target, pr); err != nil {
-				return err
-			}
-			if err := f.RemoveAll(src); err != nil {
+			if err := sf.RemoveAll(src); err != nil {
 				return err
 			}
 			t.Log("已移动 %s -> %s", src, target)
 			continue
 		}
-		if err := copyTree(ctx, f, src, target, pr); err != nil {
+		if err := copyTree(ctx, sf, src, f, target, pr, same); err != nil {
 			return err
 		}
 		t.Log("已复制 %s -> %s", src, target)
@@ -153,52 +188,52 @@ func isCrossDevice(err error) bool {
 	return errors.Is(err, syscall.EXDEV)
 }
 
-// copyTree 递归复制，保留权限、所有者、修改时间；符号链接按链接本身复制。
-func copyTree(ctx context.Context, f vfs.FS, src, dst string, pr *progress) error {
+// copyTree 递归复制，保留权限、修改时间（同一节点内还保留所有者）；符号链接按链接本身复制。
+func copyTree(ctx context.Context, sf vfs.FS, src string, df vfs.FS, dst string, pr *progress, keepOwner bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	fi, err := f.Lstat(src)
+	fi, err := sf.Lstat(src)
 	if err != nil {
 		return err
 	}
 	uid, gid := vfs.Owner(fi)
 	switch {
 	case fi.Mode()&fs.ModeSymlink != 0:
-		t, err := f.Readlink(src)
+		t, err := sf.Readlink(src)
 		if err != nil {
 			return err
 		}
-		if err := f.Symlink(t, dst); err != nil {
+		if err := df.Symlink(t, dst); err != nil {
 			return err
 		}
 	case fi.IsDir():
-		if err := f.Mkdir(dst, fi.Mode().Perm()|0o700); err != nil {
+		if err := df.Mkdir(dst, fi.Mode().Perm()|0o700); err != nil {
 			return err
 		}
-		infos, err := f.ReadDir(src)
+		infos, err := sf.ReadDir(src)
 		if err != nil {
 			return err
 		}
 		for _, ci := range infos {
-			if err := copyTree(ctx, f, path.Join(src, ci.Name()), path.Join(dst, ci.Name()), pr); err != nil {
+			if err := copyTree(ctx, sf, path.Join(src, ci.Name()), df, path.Join(dst, ci.Name()), pr, keepOwner); err != nil {
 				return err
 			}
 		}
-		f.Chmod(dst, fi.Mode().Perm()|specialBits(fi.Mode()))
+		df.Chmod(dst, fi.Mode().Perm()|specialBits(fi.Mode()))
 	case fi.Mode().IsRegular():
-		if err := copyFile(ctx, f, src, dst, fi.Mode().Perm(), pr); err != nil {
+		if err := copyFile(ctx, sf, src, df, dst, fi.Mode().Perm(), pr); err != nil {
 			return err
 		}
-		f.Chmod(dst, fi.Mode().Perm()|specialBits(fi.Mode()))
+		df.Chmod(dst, fi.Mode().Perm()|specialBits(fi.Mode()))
 	default:
 		return nil // 设备文件、管道等不复制
 	}
-	if uid >= 0 {
-		f.Chown(dst, uid, gid)
+	if keepOwner && uid >= 0 {
+		df.Chown(dst, uid, gid)
 	}
 	if fi.Mode()&fs.ModeSymlink == 0 {
-		f.Chtimes(dst, fi.ModTime(), fi.ModTime())
+		df.Chtimes(dst, fi.ModTime(), fi.ModTime())
 	}
 	return nil
 }
@@ -220,22 +255,23 @@ func (c *ctxReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func copyFile(ctx context.Context, f vfs.FS, src, dst string, perm fs.FileMode, pr *progress) error {
-	in, err := f.Open(src)
+func copyFile(ctx context.Context, sf vfs.FS, src string, df vfs.FS, dst string, perm fs.FileMode, pr *progress) error {
+	in, err := sf.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := f.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+	out, err := df.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(out, &ctxReader{ctx: ctx, r: in, pr: pr})
+	// 只暴露 Read / Write，让 io.Copy 走普通的流式复制（SFTP 文件的 ReadFrom 会预先 Stat 源）
+	_, err = io.Copy(struct{ io.Writer }{out}, &ctxReader{ctx: ctx, r: in, pr: pr})
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
-		f.Remove(dst)
+		df.Remove(dst)
 	}
 	return err
 }

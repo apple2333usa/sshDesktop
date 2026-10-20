@@ -20,17 +20,17 @@ import (
 const clkTck = 100 // Linux 的 USER_HZ 固定为 100
 
 type Proc struct {
-	PID      int32   `json:"pid"`
-	PPID     int32   `json:"ppid"`
-	Name     string  `json:"name"`
-	User     string  `json:"user"`
-	State    string  `json:"state"`
-	CPU      float64 `json:"cpu"` // 与 top 一致，单核满载为 100
-	RSS      uint64  `json:"rss"`
-	Mem      float64 `json:"mem"`
-	Threads  int     `json:"threads"`
-	Started  int64   `json:"started"` // 毫秒
-	Cmdline  string  `json:"cmdline"`
+	PID     int32   `json:"pid"`
+	PPID    int32   `json:"ppid"`
+	Name    string  `json:"name"`
+	User    string  `json:"user"`
+	State   string  `json:"state"`
+	CPU     float64 `json:"cpu"` // 与 top 一致，单核满载为 100
+	RSS     uint64  `json:"rss"`
+	Mem     float64 `json:"mem"`
+	Threads int     `json:"threads"`
+	Started int64   `json:"started"` // 毫秒
+	Cmdline string  `json:"cmdline"`
 }
 
 type sample struct {
@@ -39,12 +39,12 @@ type sample struct {
 }
 
 type Service struct {
-	mu    sync.Mutex
-	prev  map[int32]sample
-	users map[uint32]string
+	mu      sync.Mutex
+	prev    map[int32]sample
+	users   map[uint32]string
 	usersAt time.Time
-	boot  time.Time
-	audit func(module, action string) gin.HandlerFunc
+	boot    time.Time
+	audit   func(module, action string) gin.HandlerFunc
 }
 
 func New(audit func(module, action string) gin.HandlerFunc) *Service {

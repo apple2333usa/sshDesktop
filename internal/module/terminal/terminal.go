@@ -307,4 +307,3 @@ func (s *Service) attach(c *gin.Context) {
 		}
 	}
 }
-

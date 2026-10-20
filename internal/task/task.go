@@ -27,10 +27,10 @@ type Manager struct {
 
 // Task 是运行中的任务句柄，任务函数通过它汇报进度和日志。
 type Task struct {
-	m      *Manager
-	rec    store.Task
-	cancel context.CancelFunc
-	mu     sync.Mutex
+	m        *Manager
+	rec      store.Task
+	cancel   context.CancelFunc
+	mu       sync.Mutex
 	lastPush time.Time
 }
 

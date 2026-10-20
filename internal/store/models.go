@@ -1,30 +1,34 @@
 package store
 
-import "time"
+import (
+	"time"
+
+	"github.com/apple2333usa/sshdesktop/internal/metric"
+)
 
 // 账号与权限
 
 type User struct {
-	ID            uint      `gorm:"primaryKey" json:"id"`
-	Username      string    `gorm:"uniqueIndex;size:64;not null" json:"username"`
-	PasswordHash  string    `gorm:"not null" json:"-"`
-	RoleID        uint      `gorm:"index;not null" json:"roleId"`
-	Disabled      bool      `json:"disabled"`
-	LastLoginAt   *time.Time `json:"lastLoginAt"`
-	LastLoginIP   string    `gorm:"size:64" json:"lastLoginIp"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
-	Role          *Role     `gorm:"foreignKey:RoleID" json:"role,omitempty"`
+	ID           uint       `gorm:"primaryKey" json:"id"`
+	Username     string     `gorm:"uniqueIndex;size:64;not null" json:"username"`
+	PasswordHash string     `gorm:"not null" json:"-"`
+	RoleID       uint       `gorm:"index;not null" json:"roleId"`
+	Disabled     bool       `json:"disabled"`
+	LastLoginAt  *time.Time `json:"lastLoginAt"`
+	LastLoginIP  string     `gorm:"size:64" json:"lastLoginIp"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
+	Role         *Role      `gorm:"foreignKey:RoleID" json:"role,omitempty"`
 }
 
 type Role struct {
-	ID          uint      `gorm:"primaryKey" json:"id"`
-	Name        string    `gorm:"uniqueIndex;size:64;not null" json:"name"`
-	Description string    `json:"description"`
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	Name        string `gorm:"uniqueIndex;size:64;not null" json:"name"`
+	Description string `json:"description"`
 	// IsAdmin 为内置管理员角色：拥有全部权限，不可修改或删除。
-	IsAdmin     bool      `json:"isAdmin"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	IsAdmin     bool             `json:"isAdmin"`
+	CreatedAt   time.Time        `json:"createdAt"`
+	UpdatedAt   time.Time        `json:"updatedAt"`
 	Permissions []RolePermission `gorm:"foreignKey:RoleID;constraint:OnDelete:CASCADE" json:"-"`
 }
 
@@ -44,9 +48,9 @@ type Session struct {
 }
 
 type LoginAttempt struct {
-	ID       uint      `gorm:"primaryKey"`
-	IP       string    `gorm:"index;size:64"`
-	Username string    `gorm:"index;size:64"`
+	ID       uint   `gorm:"primaryKey"`
+	IP       string `gorm:"index;size:64"`
+	Username string `gorm:"index;size:64"`
 	Success  bool
 	At       time.Time `gorm:"index"`
 }
@@ -77,26 +81,8 @@ type AuditLog struct {
 
 // 监控历史
 
-type Metric struct {
-	NodeID       string  `gorm:"primaryKey;size:64" json:"-"`
-	TS           int64   `gorm:"primaryKey" json:"ts"` // Unix 秒
-	CPU          float64 `json:"cpu"`
-	Load1        float64 `json:"load1"`
-	Load5        float64 `json:"load5"`
-	Load15       float64 `json:"load15"`
-	MemUsed      uint64  `json:"memUsed"`
-	MemTotal     uint64  `json:"memTotal"`
-	SwapUsed     uint64  `json:"swapUsed"`
-	SwapTotal    uint64  `json:"swapTotal"`
-	DiskUsed     uint64  `json:"diskUsed"`
-	DiskTotal    uint64  `json:"diskTotal"`
-	DiskReadBps  float64 `json:"diskReadBps"`
-	DiskWriteBps float64 `json:"diskWriteBps"`
-	NetRxBps     float64 `json:"netRxBps"`
-	NetTxBps     float64 `json:"netTxBps"`
-	TCPConns     float64 `json:"tcpConns"`
-	Procs        float64 `json:"procs"`
-}
+// Metric 定义在 metric 包（独立 agent 也要用，不能依赖数据库）。
+type Metric = metric.Metric
 
 type Metric1m struct{ Metric }
 type Metric15m struct{ Metric }
@@ -131,8 +117,8 @@ type TaskLog struct {
 // 桌面状态与设置
 
 type DesktopState struct {
-	UserID    uint      `gorm:"primaryKey"`
-	State     string    `gorm:"type:text"`
+	UserID    uint   `gorm:"primaryKey"`
+	State     string `gorm:"type:text"`
 	UpdatedAt time.Time
 }
 
@@ -141,10 +127,113 @@ type Setting struct {
 	Value string `gorm:"type:text"`
 }
 
+// 节点
+
+// Node 是一台服务器。本机固定为 ID "local"、Kind "local"，启动时自动创建。
+type Node struct {
+	ID        string `gorm:"primaryKey;size:32" json:"id"`
+	Kind      string `gorm:"size:16;not null" json:"kind"` // local / ssh
+	Name      string `gorm:"size:64;not null" json:"name"`
+	Host      string `gorm:"size:255" json:"host"`
+	Port      int    `json:"port"`
+	Username  string `gorm:"size:64" json:"username"`
+	AuthType  string `gorm:"size:16" json:"authType"` // key / password
+	Color     string `gorm:"size:16" json:"color"`
+	SortOrder int    `json:"sortOrder"`
+	// 按月流量：每月重置日（1-28）与额度（字节，0 表示不限），额度按 sum / rx / tx 计算
+	TrafficResetDay  int       `json:"trafficResetDay"`
+	TrafficQuota     uint64    `json:"trafficQuota"`
+	TrafficQuotaMode string    `gorm:"size:8" json:"trafficQuotaMode"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+// NodeCredential 是加密后的 SSH 凭据（私钥或密码，以及私钥口令）。
+type NodeCredential struct {
+	NodeID     string `gorm:"primaryKey;size:32"`
+	Secret     []byte
+	Passphrase []byte
+}
+
+// NodeHostKey 是用户确认过的主机密钥。
+type NodeHostKey struct {
+	NodeID      string    `gorm:"primaryKey;size:32" json:"nodeId"`
+	KeyType     string    `gorm:"size:64" json:"keyType"`
+	Key         string    `json:"-"` // base64 编码的公钥
+	Fingerprint string    `gorm:"size:128" json:"fingerprint"`
+	ConfirmedAt time.Time `json:"confirmedAt"`
+}
+
+// TrafficDaily 是每个节点、每块网卡每天的收发字节数。
+type TrafficDaily struct {
+	NodeID string `gorm:"primaryKey;size:32" json:"-"`
+	Day    int    `gorm:"primaryKey" json:"day"` // YYYYMMDD
+	Iface  string `gorm:"primaryKey;size:64" json:"iface"`
+	Rx     uint64 `json:"rx"`
+	Tx     uint64 `json:"tx"`
+}
+
+// 服务监控
+
+type Probe struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	Name         string    `gorm:"size:64;not null" json:"name"`
+	Type         string    `gorm:"size:8;not null" json:"type"` // http / tcp / ping / ssl
+	Target       string    `gorm:"not null" json:"target"`
+	Interval     int       `json:"interval"` // 秒，最短 30
+	Timeout      int       `json:"timeout"`  // 秒
+	Keyword      string    `json:"keyword"`
+	ExpectStatus string    `gorm:"size:64" json:"expectStatus"` // 例如 200-399
+	SSLWarnDays  int       `json:"sslWarnDays"`
+	Enabled      bool      `json:"enabled"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+type ProbeResult struct {
+	ProbeID   uint    `gorm:"primaryKey" json:"-"`
+	TS        int64   `gorm:"primaryKey" json:"ts"` // Unix 秒
+	OK        bool    `json:"ok"`
+	LatencyMs float64 `json:"latencyMs"`
+	Message   string  `json:"message"`
+}
+
+// 批量命令
+
+type Snippet struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"size:64;not null" json:"name"`
+	Command   string    `gorm:"type:text;not null" json:"command"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type BatchRun struct {
+	ID         string     `gorm:"primaryKey;size:32" json:"id"`
+	UserID     uint       `gorm:"index" json:"userId"`
+	Username   string     `gorm:"size:64" json:"username"`
+	Command    string     `gorm:"type:text" json:"command"`
+	Nodes      string     `json:"nodes"` // 逗号分隔
+	Timeout    int        `json:"timeout"`
+	CreatedAt  time.Time  `gorm:"index" json:"createdAt"`
+	FinishedAt *time.Time `json:"finishedAt"`
+}
+
+type BatchResult struct {
+	RunID      string `gorm:"primaryKey;size:32" json:"runId"`
+	NodeID     string `gorm:"primaryKey;size:32" json:"nodeId"`
+	Status     string `gorm:"size:16" json:"status"` // running / done / failed / timeout / canceled
+	ExitCode   int    `json:"exitCode"`
+	Output     string `gorm:"type:text" json:"output"`
+	Error      string `json:"error"`
+	DurationMs int64  `json:"durationMs"`
+}
+
 func allModels() []any {
 	return []any{
 		&User{}, &Role{}, &RolePermission{}, &Session{}, &LoginAttempt{}, &IPBan{},
 		&AuditLog{}, &Metric1m{}, &Metric15m{}, &Metric1h{}, &Task{}, &TaskLog{},
 		&DesktopState{}, &Setting{},
+		&Node{}, &NodeCredential{}, &NodeHostKey{}, &TrafficDaily{},
+		&Probe{}, &ProbeResult{}, &Snippet{}, &BatchRun{}, &BatchResult{},
 	}
 }

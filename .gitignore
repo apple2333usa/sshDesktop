@@ -9,3 +9,5 @@
 *.db
 *.db-*
 id_ed25519*
+/internal/agentbin/bin/*
+!/internal/agentbin/bin/.gitkeep

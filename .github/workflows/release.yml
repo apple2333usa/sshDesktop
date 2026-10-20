@@ -28,5 +28,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/sshdesktop-linux-amd64 dist/sshdesktop-linux-arm64 dist/SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" dist/sshdesktop-linux-amd64 dist/sshdesktop-linux-arm64 \
+            dist/sshdesktop-agent-linux-amd64 dist/sshdesktop-agent-linux-arm64 dist/SHA256SUMS \
             --title "sshDesktop $GITHUB_REF_NAME" --generate-notes

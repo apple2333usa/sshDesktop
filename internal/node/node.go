@@ -5,8 +5,12 @@ package node
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/apple2333usa/sshdesktop/internal/vfs"
 )
@@ -46,32 +50,108 @@ type Result struct {
 type Node interface {
 	ID() string
 	Kind() Kind
+	// Exec 以参数数组执行命令，不经过 shell 展开。
 	Exec(ctx context.Context, name string, args ...string) (Result, error)
+	// RunScript 用登录 shell 执行一段脚本（批量命令），输出实时写入 out。
+	RunScript(ctx context.Context, script string, out io.Writer) (int, error)
 	Shell(ctx context.Context, opt ShellOptions) (PTY, error)
 	FS() vfs.FS
 }
 
 var ErrNotFound = errors.New("节点不存在")
 
-type Registry struct{ local *Local }
+// Registry 保存本机和所有远程节点。
+type Registry struct {
+	local *Local
+	mu    sync.RWMutex
+	ssh   map[string]*SSH
+}
 
-func NewRegistry() *Registry { return &Registry{local: &Local{}} }
+func NewRegistry() *Registry { return &Registry{local: &Local{}, ssh: map[string]*SSH{}} }
 
 func (r *Registry) Get(id string) (Node, error) {
 	if id == LocalID {
 		return r.local, nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if n, ok := r.ssh[id]; ok {
+		return n, nil
 	}
 	return nil, ErrNotFound
 }
 
 func (r *Registry) Local() *Local { return r.local }
 
+// SSH 返回远程节点。
+func (r *Registry) SSH(id string) (*SSH, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	n, ok := r.ssh[id]
+	return n, ok
+}
+
+// Put 添加或替换远程节点（替换时关闭旧连接）。
+func (r *Registry) Put(n *SSH) {
+	r.mu.Lock()
+	old := r.ssh[n.ID()]
+	r.ssh[n.ID()] = n
+	r.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
+}
+
+func (r *Registry) Remove(id string) {
+	r.mu.Lock()
+	old := r.ssh[id]
+	delete(r.ssh, id)
+	r.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
+}
+
+// Remote 返回所有远程节点。
+func (r *Registry) Remote() []*SSH {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]*SSH, 0, len(r.ssh))
+	for _, n := range r.ssh {
+		out = append(out, n)
+	}
+	return out
+}
+
+// RunScript 用登录 shell 执行脚本。
+func (*Local) RunScript(ctx context.Context, script string, out io.Writer) (int, error) {
+	shell, home, _ := loginShell()
+	cmd := exec.CommandContext(ctx, shell, "-c", script)
+	cmd.Dir = home
+	cmd.Stdout, cmd.Stderr = out, out
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 2 * time.Second
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ctx.Err() == nil {
+		return ee.ExitCode(), nil
+	}
+	if ctx.Err() != nil {
+		return -1, ctx.Err()
+	}
+	if err != nil {
+		return -1, err
+	}
+	return 0, nil
+}
+
 // Local 是面板所在的本机。
 type Local struct{}
 
-func (*Local) ID() string    { return LocalID }
-func (*Local) Kind() Kind    { return KindLocal }
-func (*Local) FS() vfs.FS    { return vfs.Local{} }
+func (*Local) ID() string { return LocalID }
+func (*Local) Kind() Kind { return KindLocal }
+func (*Local) FS() vfs.FS { return vfs.Local{} }
 
 // Exec 以参数数组执行命令，不经过 shell。
 func (*Local) Exec(ctx context.Context, name string, args ...string) (Result, error) {

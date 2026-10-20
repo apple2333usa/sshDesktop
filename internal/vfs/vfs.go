@@ -36,6 +36,18 @@ type FS interface {
 	Chtimes(name string, atime, mtime time.Time) error
 	// TrashRoot 返回 name 所在位置应使用的回收站目录（不保证已存在）。
 	TrashRoot(name string) (string, error)
+	// MountList 返回“此电脑”中展示的磁盘（挂载点与用量）。
+	MountList() []MountUsage
+	// HomeDir 返回登录用户的家目录。
+	HomeDir() string
+}
+
+// MountUsage 是一个挂载点及其用量。
+type MountUsage struct {
+	Mount
+	Total uint64 `json:"total"`
+	Used  uint64 `json:"used"`
+	Free  uint64 `json:"free"`
 }
 
 // Owner 从 FileInfo 中取出 uid / gid（取不到时返回 -1）。

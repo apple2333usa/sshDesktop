@@ -73,7 +73,7 @@ func (s *Service) paste(c *gin.Context) {
 }
 
 type progress struct {
-	t          *task.Task
+	t           *task.Task
 	total, done int64
 }
 
@@ -361,7 +361,7 @@ func (s *Service) chown(c *gin.Context) {
 	if !ok {
 		return
 	}
-	uid, gid, err := s.owners.lookup(req.Owner, req.Group)
+	uid, gid, err := s.owners.of(f).lookup(req.Owner, req.Group)
 	if err != nil {
 		api.Fail(c, err)
 		return

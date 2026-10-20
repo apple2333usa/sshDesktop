@@ -141,7 +141,7 @@ func SetIP(c *gin.Context, ip string) { c.Set(ctxIP, ip) }
 func IP(c *gin.Context) string        { return c.GetString(ctxIP) }
 
 // Target 记录本次操作的对象（文件路径、进程号等），写入审计日志。
-func Target(c *gin.Context, t string) { c.Set(ctxAuditTgt, t) }
+func Target(c *gin.Context, t string)   { c.Set(ctxAuditTgt, t) }
 func AuditTarget(c *gin.Context) string { return c.GetString(ctxAuditTgt) }
 func AuditErr(c *gin.Context) string    { return c.GetString(ctxAuditErr) }
 

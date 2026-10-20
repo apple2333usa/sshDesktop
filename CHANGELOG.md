@@ -19,3 +19,9 @@
 - 简介：实现设计文档里程碑 M1。后端（Go + Gin + SQLite）：启动配置与命令行（server、info、user、config、upgrade、uninstall、version）、登录会话与 CSRF、二级确认、暴力破解封禁、仅本机访问与 Host 校验、账号角色与功能权限、操作审计、后台任务与 WebSocket 推送，以及监控、终端、文件（含压缩、权限、回收站）、进程、系统服务、系统设置模块。前端（Vue 3 + Naive UI）：Win11 桌面外观（任务栏、开始菜单、多窗口、通知、深浅色）、管理后台外观，以及监控、终端、文件资源管理器、编辑器、预览、进程、服务、账号、审计、设置应用；中文界面。另有一键安装脚本、systemd 单元、Makefile、CI 与发布流程。README 改写为当前状态。
 - 对应文件：`cmd/sshdesktop/`、`internal/`、`embed.go`、`web/`、`scripts/install.sh`、`Makefile`、`VERSION`、`.github/workflows/ci.yml`、`.github/workflows/release.yml`、`.gitignore`、`README.md`、`docs/readme-history/README-未设版本-20261020-163000.md`
 - 验证与限制：容器内 `go vet`、`go test ./...`（访问控制、登录与 CSRF、封禁、权限、文件流程、压缩往返与 zip-slip、回收站、最后一个管理员保护、配置、密码、服务解析）通过；前端类型检查与 vitest 7 项通过；Playwright e2e 桌面 9 项与手机 1 项通过（容器无 systemd，服务列表断言以 `SD_NO_SYSTEMD` 跳过）。测试服务器部署结果待补充。尚未在真实浏览器中人工验证与操作系统之间的拖放、PDF 预览和关机重启。
+
+## 2026-10-20 18:18 +08:00 · 0.1.0 · 测试服务器验证与隧道提示修正
+
+- 简介：在测试服务器（Debian 13 arm64，root，SSH 端口非默认）用 `install.sh --binary` 安装 M1 并跑 e2e。发现安装脚本和 `sshdesktop info` 打印的 SSH 隧道命令有误：安装脚本按 `sshd` 子串匹配到了面板自己的进程（`sshdesktop`），把面板端口当成 SSH 端口，且给出云服务器网卡上的内网 IP；`info` 用主机名作地址且不带 SSH 端口。现改为：SSH 端口优先取 `sshd -T` 的生效配置（安装脚本再以精确匹配 `"sshd"` 的 `ss` 结果兜底），地址只给公网 IPv4，网卡上只有内网地址（含 CGNAT）时给 `<服务器IP>` 占位。另把 `upgrade.go` 按 gofmt 格式化。
+- 对应文件：`scripts/install.sh`、`cmd/sshdesktop/cli.go`、`cmd/sshdesktop/upgrade.go`
+- 验证与限制：服务器上安装成功，健康检查、systemd 自启、仅监听 127.0.0.1:33333、日志无报错；经 SSH 隧道跑 Playwright e2e 11 项（含截图）全部通过，服务列表断言在真实 systemd 下通过。修正后容器内 `go vet`、`go test ./...` 通过，端口与内网地址判断用样例输出验证；修正后的输出还需在服务器上复核。

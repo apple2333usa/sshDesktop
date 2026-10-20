@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -39,15 +40,43 @@ func infoCmd() *cobra.Command {
 			if cfg.Public() {
 				fmt.Printf("访问地址：  https://%s:%d\n", cfg.Domain, cfg.Port)
 			} else {
-				host, _ := os.Hostname()
 				fmt.Println("访问方式：  面板只接受本机连接，请在你的电脑上建立 SSH 隧道：")
-				fmt.Printf("            ssh -L %d:127.0.0.1:%d root@%s\n", cfg.Port, cfg.Port, host)
+				fmt.Printf("            ssh -N -L %d:127.0.0.1:%d -p %s root@%s\n", cfg.Port, cfg.Port, sshPort(), publicIP())
 				fmt.Printf("            然后在浏览器打开 http://127.0.0.1:%d\n", cfg.Port)
 				fmt.Println("            配置域名和 HTTPS 后才会对公网开放。")
 			}
 			return nil
 		},
 	}
+}
+
+// sshPort 返回 sshd 实际监听的端口，取不到时按默认 22。
+func sshPort() string {
+	if out, err := exec.Command("sshd", "-T").Output(); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			if f := strings.Fields(line); len(f) == 2 && f[0] == "port" {
+				return f[1]
+			}
+		}
+	}
+	return "22"
+}
+
+// publicIP 返回本机第一个公网 IPv4；云服务器网卡上通常只有内网地址，此时给占位符。
+func publicIP() string {
+	cgnat := net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+	addrs, _ := net.InterfaceAddrs()
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip := n.IP.To4()
+		if ip != nil && ip.IsGlobalUnicast() && !ip.IsPrivate() && !cgnat.Contains(ip) {
+			return ip.String()
+		}
+	}
+	return "<服务器IP>"
 }
 
 // readPassword 交互读取密码（不回显）；非终端时从标准输入读一行。

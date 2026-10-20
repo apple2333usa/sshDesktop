@@ -282,4 +282,3 @@ func uninstallCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "不再确认")
 	return cmd
 }
-

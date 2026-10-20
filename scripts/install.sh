@@ -175,8 +175,14 @@ done
 curl -fsS "http://127.0.0.1:$PORT/api/v1/health" >/dev/null 2>&1 || die "面板未能正常启动，请查看：journalctl -u sshdesktop -n 50"
 
 # ---------- 5. 访问方式 ----------
+# 内网地址（云服务器常见）从外面连不上，此时只给占位符
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-SSH_PORT=$(ss -lntp 2>/dev/null | awk '/sshd/ {split($4, a, ":"); print a[length(a)]; exit}')
+case "$IP" in
+  "" | 10.* | 192.168.* | 172.1[6-9].* | 172.2[0-9].* | 172.3[01].* | 100.6[4-9].* | 100.[7-9][0-9].* | 100.1[01][0-9].* | 100.12[0-7].*) IP="" ;;
+esac
+# 优先取 sshd 的生效配置；ss 里要精确匹配 "sshd"，否则会匹配到 sshdesktop 自己
+SSH_PORT=$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2; exit}')
+[ -n "$SSH_PORT" ] || SSH_PORT=$(ss -lntp 2>/dev/null | awk '/"sshd"/ {n = split($4, a, ":"); print a[n]; exit}')
 echo
 green "sshDesktop 安装完成（$("$BIN" version)）"
 echo
@@ -189,7 +195,7 @@ fi
 echo
 echo "  面板默认只监听本机 127.0.0.1:$PORT，请通过 SSH 隧道访问。在你的电脑上运行："
 echo
-echo "    ssh -N -L $PORT:127.0.0.1:$PORT -p ${SSH_PORT:-22} root@${IP:-服务器IP}"
+echo "    ssh -N -L $PORT:127.0.0.1:$PORT -p ${SSH_PORT:-22} root@${IP:-<服务器IP>}"
 echo
 echo "  然后在浏览器打开 http://127.0.0.1:$PORT"
 echo "  （MobaXterm、Termius 等工具也可以配置同样的本地端口转发。）"

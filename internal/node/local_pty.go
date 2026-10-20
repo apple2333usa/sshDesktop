@@ -76,6 +76,9 @@ func loginShell() (shell, home, name string) {
 func (*Local) Shell(ctx context.Context, opt ShellOptions) (PTY, error) {
 	shell, home, name := loginShell()
 	cmd := exec.Command(shell, "-l")
+	if len(opt.Command) > 0 {
+		cmd = exec.Command(opt.Command[0], opt.Command[1:]...)
+	}
 	cmd.Dir = home
 	if opt.Dir != "" {
 		if fi, err := os.Stat(opt.Dir); err == nil && fi.IsDir() {

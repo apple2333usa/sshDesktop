@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"sync"
 	"time"
@@ -21,6 +22,8 @@ import (
 )
 
 const replayLimit = 1 << 20
+
+var containerID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
 type Session struct {
 	ID        string    `json:"id"`
@@ -49,6 +52,9 @@ type Service struct {
 
 	mu       sync.Mutex
 	sessions map[string]*Session
+
+	// AllowContainer 判断当前账号能否进入容器终端（需要 docker:manage），失败时已输出响应。
+	AllowContainer func(c *gin.Context) bool
 }
 
 func New(nodes *node.Registry, st *store.Store, rec *audit.Recorder) *Service {
@@ -93,6 +99,8 @@ func (s *Service) create(c *gin.Context) {
 		Cols uint16 `json:"cols"`
 		Rows uint16 `json:"rows"`
 		Dir  string `json:"dir"`
+		// Container 不为空时进入该容器（docker exec），仅本机
+		Container string `json:"container"`
 	}
 	if !api.Bind(c, &req) {
 		return
@@ -102,7 +110,22 @@ func (s *Service) create(c *gin.Context) {
 		api.Fail(c, api.NotFound("节点不存在"))
 		return
 	}
-	p, err := n.Shell(context.Background(), node.ShellOptions{Size: node.Size{Cols: req.Cols, Rows: req.Rows}, Dir: req.Dir})
+	opt := node.ShellOptions{Size: node.Size{Cols: req.Cols, Rows: req.Rows}, Dir: req.Dir}
+	title := "终端"
+	if req.Container != "" {
+		if n.ID() != node.LocalID || !containerID.MatchString(req.Container) {
+			api.Fail(c, api.BadRequest("只能进入本机的容器"))
+			return
+		}
+		if s.AllowContainer == nil || !s.AllowContainer(c) {
+			return
+		}
+		// 优先 bash，没有时用 sh
+		opt.Command = []string{"docker", "exec", "-it", "-e", "TERM=xterm-256color", req.Container,
+			"sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi"}
+		title = "容器 " + req.Container
+	}
+	p, err := n.Shell(context.Background(), opt)
 	if err != nil {
 		api.Fail(c, err)
 		return
@@ -112,7 +135,7 @@ func (s *Service) create(c *gin.Context) {
 	u := api.User(c)
 	sess := &Session{
 		ID: hex.EncodeToString(b), Node: n.ID(), UserID: u.UserID, Username: u.Username,
-		Title: "终端", CreatedAt: time.Now(), pty: p, ip: api.IP(c),
+		Title: title, CreatedAt: time.Now(), pty: p, ip: api.IP(c),
 		subs: map[chan []byte]struct{}{}, detached: time.Now(), done: make(chan struct{}),
 	}
 	s.mu.Lock()
@@ -120,6 +143,9 @@ func (s *Service) create(c *gin.Context) {
 	s.mu.Unlock()
 	e := audit.FromContext(c, "terminal", "open")
 	e.Target, e.Success = "会话 "+sess.ID, true
+	if req.Container != "" {
+		e.Target += "（容器 " + req.Container + "）"
+	}
 	s.audit.Write(e)
 	go s.pump(sess)
 	api.OK(c, sess)

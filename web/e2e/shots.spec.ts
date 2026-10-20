@@ -44,4 +44,20 @@ test('截图', async ({ page }) => {
   await page.goto('/admin/audit')
   await page.waitForTimeout(800)
   await page.screenshot({ path: `${dir}/08-admin-audit.png` })
+  // M3：Docker、应用商店、计划任务、备份
+  await page.goto('/desktop')
+  await page.waitForLoadState('networkidle')
+  await closeAll(page)
+  const shots: [string, string][] = [
+    ['docker', '09-docker'],
+    ['appstore', '10-appstore'],
+    ['cron', '11-cron'],
+    ['backup', '12-backup'],
+  ]
+  for (const [id, name] of shots) {
+    await openApp(page, id)
+    await page.waitForTimeout(1500)
+    await page.screenshot({ path: `${dir}/${name}.png` })
+    await closeAll(page)
+  }
 })

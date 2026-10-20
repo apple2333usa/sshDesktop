@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,9 +19,15 @@ import (
 	"github.com/apple2333usa/sshdesktop/internal/api"
 	"github.com/apple2333usa/sshdesktop/internal/audit"
 	"github.com/apple2333usa/sshdesktop/internal/auth"
+	"github.com/apple2333usa/sshdesktop/internal/backup"
 	"github.com/apple2333usa/sshdesktop/internal/config"
+	"github.com/apple2333usa/sshdesktop/internal/docker"
+	"github.com/apple2333usa/sshdesktop/internal/module/appstore"
+	backupmod "github.com/apple2333usa/sshdesktop/internal/module/backup"
 	"github.com/apple2333usa/sshdesktop/internal/module/batch"
+	"github.com/apple2333usa/sshdesktop/internal/module/cron"
 	"github.com/apple2333usa/sshdesktop/internal/module/desktop"
+	dockermod "github.com/apple2333usa/sshdesktop/internal/module/docker"
 	"github.com/apple2333usa/sshdesktop/internal/module/files"
 	"github.com/apple2333usa/sshdesktop/internal/module/monitor"
 	"github.com/apple2333usa/sshdesktop/internal/module/nodes"
@@ -37,6 +44,7 @@ import (
 	"github.com/apple2333usa/sshdesktop/internal/secret"
 	"github.com/apple2333usa/sshdesktop/internal/store"
 	"github.com/apple2333usa/sshdesktop/internal/task"
+	"github.com/apple2333usa/sshdesktop/internal/vfs"
 	"github.com/gin-gonic/gin"
 )
 
@@ -58,6 +66,11 @@ type Server struct {
 	nodeMgr  *nodes.Service
 	batch    *batch.Service
 	probe    *probe.Service
+	box      *secret.Box
+	docker   *docker.Client
+	apps     *appstore.Service
+	cron     *cron.Service
+	backup   *backup.Engine
 
 	engine *gin.Engine
 }
@@ -96,6 +109,33 @@ func New(cfg *config.Config, st *store.Store, version string, web fs.FS) (*Serve
 	s.nodeMgr.OnAdded = s.monitor.Attach
 	s.nodeMgr.OnRemoved = s.monitor.Detach
 	s.nodeMgr.OnAgentChanged = s.monitor.Restart
+	s.box = box
+	s.docker = docker.New("")
+	s.apps = appstore.New(appstore.Deps{
+		Store: st, Tasks: s.tasks, Docker: s.docker, DataDir: cfg.DataDir, Confirm: s.confirm, Audit: s.audit.Action,
+	})
+	s.backup = &backup.Engine{
+		Store: st, Box: box, DataDir: cfg.DataDir, ConfigPath: cfg.Path(), Version: version,
+		Docker: s.docker, Remote: s.remoteFS,
+	}
+	s.backup.Cleanup()
+	bin, _ := os.Executable()
+	s.cron = cron.New(cron.Deps{
+		Store: st, Tasks: s.tasks, Bin: bin, Config: cfg.Path(), Audit: s.audit.Action,
+		Runner: &cron.Runner{Store: st, DataDir: cfg.DataDir, Backup: s.backup.RunPlan},
+		PlanExists: func(id uint) bool {
+			var n int64
+			st.DB.Model(&store.BackupPlan{}).Where("id = ?", id).Count(&n)
+			return n > 0
+		},
+	})
+	s.terminal.AllowContainer = func(c *gin.Context) bool {
+		if !s.checker.Has(api.User(c).RoleID, rbac.DockerManage) {
+			api.Fail(c, api.Forbidden("没有权限："+rbac.DockerManage))
+			return false
+		}
+		return true
+	}
 	if err := s.ensureAdmin(); err != nil {
 		return nil, err
 	}
@@ -104,6 +144,26 @@ func New(cfg *config.Config, st *store.Store, version string, web fs.FS) (*Serve
 	}
 	s.engine = s.routes()
 	return s, nil
+}
+
+// remoteFS 返回 SFTP 备份目标所在节点的文件系统。
+func (s *Server) remoteFS(ctx context.Context, id string) (vfs.FS, func(), error) {
+	n, ok := s.nodes.SSH(id)
+	if !ok {
+		return nil, nil, errors.New("SFTP 备份目标所在的服务器不存在")
+	}
+	if st := n.Status(); st.State != node.StateOnline {
+		return nil, nil, fmt.Errorf("SFTP 备份目标所在的服务器未连接：%s", st.Error)
+	}
+	return n.FS(), func() {}, nil
+}
+
+// restartPanel 在 systemd 下重启面板（面板数据恢复后需要重启）。
+func restartPanel() {
+	slog.Warn("面板数据已恢复，正在重启面板")
+	if err := exec.Command("systemctl", "--no-block", "restart", "sshdesktop").Run(); err != nil {
+		slog.Error("重启面板失败，请手动执行 systemctl restart sshdesktop", "err", err)
+	}
 }
 
 // ensureSecretKey 首次启动时生成加密主密钥，用于加密远程节点凭据。
@@ -226,6 +286,18 @@ func (s *Server) routes() *gin.Engine {
 	})
 	process.New(a).Register(local, s.perm(rbac.ProcessView), s.perm(rbac.ProcessManage))
 	service.New(s.nodes.Local(), a).Register(local, s.perm(rbac.ProcessView), s.perm(rbac.ProcessManage))
+	dockermod.New(dockermod.Deps{
+		Store: s.st, Tasks: s.tasks, Docker: s.docker, DataDir: s.cfg.DataDir, Confirm: s.confirm, Audit: a, AppOf: s.apps.AppOf,
+	}).Register(local, s.perm(rbac.DockerView), s.perm(rbac.DockerManage))
+	s.apps.Register(local, s.perm(rbac.AppstoreView), s.perm(rbac.AppstoreManage))
+	s.cron.Register(local, s.perm(rbac.CronView), s.perm(rbac.CronManage))
+	var restart func()
+	if os.Getenv("INVOCATION_ID") != "" { // 由 systemd 启动
+		restart = restartPanel
+	}
+	backupmod.New(backupmod.Deps{
+		Store: s.st, Tasks: s.tasks, Engine: s.backup, Cron: s.cron, Confirm: s.confirm, Audit: a, Restart: restart,
+	}).Register(local, s.perm(rbac.BackupView), s.perm(rbac.BackupManage))
 
 	e.NoRoute(s.static)
 	return e
@@ -265,6 +337,10 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.col.Run(ctx)
 	go s.background(ctx)
 	go s.probe.Run(ctx)
+	go s.apps.Load()
+	if err := s.cron.Sync(); err != nil {
+		slog.Info("计划任务未写入系统 cron", "err", err)
+	}
 	defer s.monitor.Stop()
 	if sock := s.agentSocket(); sock != "" {
 		go func() {

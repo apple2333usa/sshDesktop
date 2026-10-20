@@ -126,7 +126,7 @@ flowchart LR
 | 系统信息 | gopsutil v4 | 跨发行版采集 CPU、内存、磁盘、网络、进程 |
 | SSH / SFTP | `golang.org/x/crypto/ssh`、`pkg/sftp` | 事实标准 |
 | 本机终端 | creack/pty | 事实标准 |
-| Docker | `moby/moby/client`；Compose 调用 `docker compose` 命令 | 官方 SDK；Compose 走 CLI 与 1Panel 一致，兼容性最好 |
+| Docker | 直接调用 Docker Engine API（经 `/var/run/docker.sock` 的 HTTP）；Compose 调用 `docker compose` 命令 | 只用到列表、创建、启停、日志、exec 等稳定接口，自己封装可以避开官方 SDK 庞大的依赖和 API 版本协商问题（M3 实现时由原定的 `moby/moby/client` 改为此方案）；Compose 走 CLI 与 1Panel 一致，兼容性最好 |
 | 证书 | lego v4 | 支持 HTTP-01 和几十家 DNS 服务商的 DNS-01 |
 | 命令行 | cobra | 子命令与帮助生成 |
 | 前端框架 | Vue 3.5 + TypeScript + Vite 8 | 已确认 |
@@ -408,6 +408,10 @@ interface AppManifest {
 - 面板能看到并管理服务器上所有已有容器，不论是否由面板创建；已有的 Compose 项目通过容器标签 `com.docker.compose.project.working_dir` 识别，自动出现在 Compose 列表中。
 - Docker 未安装时提供一键安装（官方安装脚本或发行版软件包）。
 - 仅本机。权限点：`docker:view`、`docker:manage`。
+- 实现说明（M3）：
+  - 一键安装：官方脚本 `get.docker.com`（可选阿里云、Azure 中国镜像）或发行版软件包，同时安装 Compose 插件并设为开机自启；Docker 已安装但服务没有运行时提供启动按钮。
+  - 容器终端：终端应用新开一个标签页，执行 `docker exec -it`（依次尝试 bash、sh），需要 `docker:manage` 和 `terminal:use`。
+  - 面板新建的 Compose 项目保存在数据目录的 `compose/<项目名>/`；从已有目录导入的项目只记录位置。应用商店安装的项目在 Compose 列表中标为“应用商店”，只能在应用商店中删除。
 
 ### 7.9 应用商店（`appstore`）
 
@@ -416,6 +420,14 @@ interface AppManifest {
 - 已安装应用：启停、升级、查看日志、打开目录、卸载（可选保留数据）。
 - 应用定义来源设计为可配置的"应用源"（Git 仓库或 HTTP 地址），格式兼容 1Panel 应用商店。默认应用源为 [1Panel 应用商店](https://github.com/1Panel-dev/appstore)（160 多个应用），用户可追加自己的应用源。
 - 仅本机。权限点：`appstore:view`、`appstore:manage`。
+- 实现说明（M3）：
+  - 应用源有三种：索引（默认使用 1Panel 发布的索引 `https://apps-assets.fit2cloud.com/stable/1panel.json`，2026-10 时有 264 个应用、17 个分类，安装时再下载对应版本的压缩包）、Git 仓库、本机目录。
+  - 应用装在数据目录的 `apps/<应用>/<名称>/`，容器接入外部网络 `1panel-network`（与 1Panel 一致，方便应用之间互访）。
+  - 端口映射统一改写为 `${HOST_IP}:端口`：不勾选“允许外部访问”时 `HOST_IP` 为 `127.0.0.1`，只能经反向代理或 SSH 隧道访问；默认勾选，与 1Panel 一致。
+  - 拉取镜像失败（例如镜像仓库限流）时不中止安装，改用本机已有的镜像启动；缺少镜像时由启动步骤报错。
+  - 升级前备份 Compose 文件、`.env` 和脚本，失败时还原并重新启动旧版本。
+  - 暂不支持的应用在列表中标出原因，不能安装：表单中需要选择其他应用或服务（`apps` / `service` 类型字段，多为依赖数据库的应用，2026-10 时 52 个），等数据库管理（P2）提供后再支持；1Panel 的网站运行环境（PHP、Node.js、Java、Go、Python、.NET，9 个）需要配合网站目录使用，放到网站管理中。
+  - 安装后“一键创建网站反向代理”依赖网站管理，放到 M4。
 
 ### 7.10 网站管理（`website`、`cert`）
 
@@ -447,6 +459,11 @@ interface AppManifest {
 - 任务写入 `/etc/cron.d/sshdesktop`，由 `sshdesktop cron run <id>` 执行，执行记录和输出写入数据库。这样面板停止时任务照常运行。
 - 系统已有的 crontab（`/etc/crontab`、`/etc/cron.d/`、各用户 crontab）全部列出，可启用 / 停用、编辑和删除；无法解析的行以原始文本方式编辑。
 - 仅本机。权限点：`cron:view`、`cron:manage`。
+- 实现说明（M3）：
+  - 每个任务可设超时和保留的执行记录条数；上一次还没执行完时本次记为“已跳过”。备份类型的任务由备份计划的“定时”自动创建和删除。
+  - 系统 crontab 中停用的行在行首加 `#sshdesktop-off# `；文件第一次修改前原样备份到数据目录的 `takeover-backup/cron/`（每个文件每天一份）；用户 crontab 经 `crontab -u` 写入。保存时校验文件没有被别人改过，改过则提示刷新。
+  - 另外只读列出 systemd 定时器（`systemctl list-timers`）。
+  - 没有安装 cron 时界面提示，并可用系统包管理器一键安装。
 
 ### 7.14 备份与恢复（`backup`）
 
@@ -455,6 +472,14 @@ interface AppManifest {
 - 格式：tar.gz，可选 AES 加密；保留策略（最近 N 份 / N 天）。
 - 恢复：从记录列表选择恢复，恢复前自动给当前状态做一次快照。
 - 仅本机。权限点：`backup:view`、`backup:manage`。
+- 实现说明（M3）：
+  - 网站备份依赖网站管理，放到 M4；M3 支持目录、应用和面板自身。
+  - 备份文件为 tar.gz，第一个文件是清单 `.sshdesktop-backup.json`（类型、来源、计划、主机名、面板版本、时间、主密钥指纹，应用备份还带安装记录），目录备份内容在 `data/` 下，应用在 `app/` 下（含应用参数），面板在 `panel/` 下（用 `VACUUM INTO` 导出的数据库、配置文件、Compose 项目配置，可选主密钥）。存储中的路径为 `plan-<计划ID>/<类型>_<来源>_<时间>.tar.gz`，加密后加 `.enc`。
+  - 加密与 OpenSSL 兼容（AES-256-CBC，PBKDF2-SHA256 迭代 10 万次），没有面板也能手动解密：`openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -in <备份文件> -out <备份文件>.tar.gz`。备份密码用主密钥加密保存在计划中，恢复时可以不再输入。
+  - 保留策略按每个目标分别计算（份数和天数），最新的一份总是保留。远程服务器目标经“服务器”中已添加节点的 SSH 连接（SFTP）传输。目标中的文件可以直接浏览，没有记录的备份（例如来自另一台服务器）也能恢复。
+  - 恢复是二级确认的后台任务：先下载到恢复位置所在的文件系统中解压，再替换原内容，失败时不留下半成品。恢复前的快照保存在本机数据目录的 `backups/snapshots/`，保留最近 10 份，可以像普通备份一样恢复（即撤销）。目录备份可以恢复到其他目录。
+  - 恢复应用会先停止应用，用备份替换应用目录和参数后重新启动。
+  - 恢复面板数据不能在运行中替换数据库：先解压到数据目录的 `restore-pending/`，面板重启时（启动早期、打开数据库之前）换入，旧数据移到 `restore-old-<时间>/`。备份中的配置文件另存为 `config.yaml.from-backup`，不覆盖当前配置，避免端口、监听地址变化导致失联。由 systemd 运行时恢复完成后自动重启面板。
 
 ### 7.15 账号与权限（`users`）
 
@@ -538,7 +563,7 @@ interface AppManifest {
 
 ### 8.7 权限模型
 
-- 所有服务器操作以 root 执行，权限只在面板层面控制（按需求）。界面在分配 `terminal:use`、`batch:run`、`files:manage` 时提示"这些权限等同于 root"。
+- 所有服务器操作以 root 执行，权限只在面板层面控制（按需求）。界面在分配 `terminal:use`、`batch:run`、`files:manage` 时提示"这些权限等同于 root"。M3 新增的 `docker:manage`、`appstore:manage`、`cron:manage`、`backup:manage` 同样等同 root（能以 root 运行容器、脚本或改写文件）。
 - 节点管理（添加、修改、删除远程服务器，确认主机指纹，安装 / 卸载 agent，设置流量重置日与额度）使用 `nodes:manage`，同样等同 root（能拿到远程服务器的 SSH 凭据）。节点列表对所有登录账号可见，其余模块按各自的权限点访问远程节点。
 - 后端每个接口声明所需权限点，中间件统一校验；前端只负责隐藏无权限入口，不作为安全依据。
 
@@ -619,6 +644,12 @@ curl -fsSL <安装脚本地址> | sudo bash
 ## 13. 待定事项
 
 需求讨论中的事项已全部确认。实现过程中新出现的待定事项记录在这里，并同步到 [需求讨论记录](requirements.md)。
+
+| 事项 | 现状 | 计划 |
+| --- | --- | --- |
+| 依赖其他应用的商店应用（52 个，多为需要数据库的应用） | M3 标为暂不支持 | 数据库管理（P2）提供后支持选择已安装的数据库应用 |
+| 1Panel 网站运行环境（PHP、Node.js 等 9 个） | M3 标为暂不支持 | 在 M4 网站管理中作为网站的运行环境提供 |
+| 网站备份、安装应用后一键创建反向代理 | M3 未提供 | M4 网站管理完成后补上 |
 
 ## 14. 参考项目
 

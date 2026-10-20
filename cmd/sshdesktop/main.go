@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	sshdesktop "github.com/apple2333usa/sshdesktop"
+	"github.com/apple2333usa/sshdesktop/internal/backup"
 	"github.com/apple2333usa/sshdesktop/internal/config"
 	"github.com/apple2333usa/sshdesktop/internal/logx"
 	"github.com/apple2333usa/sshdesktop/internal/server"
@@ -27,7 +28,7 @@ func main() {
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().StringVarP(&configPath, "config", "c", config.DefaultPath, "配置文件路径")
-	root.AddCommand(serverCmd(), infoCmd(), versionCmd(), userCmd(), configCmd(), upgradeCmd(), uninstallCmd())
+	root.AddCommand(serverCmd(), infoCmd(), versionCmd(), userCmd(), configCmd(), upgradeCmd(), uninstallCmd(), cronCmd())
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "错误：", err)
 		os.Exit(1)
@@ -54,6 +55,9 @@ func serverCmd() *cobra.Command {
 				return err
 			}
 			defer closer.Close()
+			if err := backup.ApplyPendingPanelRestore(cfg.DataDir, cfg.Path()); err != nil {
+				return err
+			}
 			st, err := openStore(cfg)
 			if err != nil {
 				return err

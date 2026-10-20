@@ -2,12 +2,14 @@
 package task
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -185,4 +187,39 @@ func (m *Manager) Cleanup() {
 		m.st.DB.Where("task_id IN ?", ids).Delete(&store.TaskLog{})
 		m.st.DB.Where("id IN ?", ids).Delete(&store.Task{})
 	}
+}
+
+// LineWriter 把命令输出按行写入任务日志，结束时调用 Flush 写出最后不完整的一行。
+type LineWriter struct {
+	t   *Task
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (t *Task) Lines() *LineWriter { return &LineWriter{t: t} }
+
+func (l *LineWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.buf = append(l.buf, p...)
+	for {
+		i := bytes.IndexAny(l.buf, "\r\n")
+		if i < 0 {
+			break
+		}
+		if line := strings.TrimSpace(string(l.buf[:i])); line != "" {
+			l.t.Log("%s", line)
+		}
+		l.buf = l.buf[i+1:]
+	}
+	return len(p), nil
+}
+
+func (l *LineWriter) Flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if s := strings.TrimSpace(string(l.buf)); s != "" {
+		l.t.Log("%s", s)
+	}
+	l.buf = nil
 }

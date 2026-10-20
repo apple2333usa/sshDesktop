@@ -114,27 +114,31 @@ func (s *Service) onStatus(id string, st node.Status) {
 	}
 }
 
-// sshConfig 解密凭据并组装连接配置。
 func (s *Service) sshConfig(row store.Node) (node.SSHConfig, error) {
+	return SSHConfig(s.d.Store, s.d.Box, row)
+}
+
+// SSHConfig 解密凭据并组装连接配置（命令行执行定时备份时也用它连接 SFTP 目标）。
+func SSHConfig(st *store.Store, box *secret.Box, row store.Node) (node.SSHConfig, error) {
 	cfg := node.SSHConfig{ID: row.ID, Host: row.Host, Port: row.Port, User: row.Username}
 	var cred store.NodeCredential
-	if err := s.d.Store.DB.First(&cred, "node_id = ?", row.ID).Error; err != nil {
+	if err := st.DB.First(&cred, "node_id = ?", row.ID).Error; err != nil {
 		return cfg, errors.New("凭据不存在，请重新填写")
 	}
-	sec, err := s.d.Box.Open(cred.Secret)
+	sec, err := box.Open(cred.Secret)
 	if err != nil {
 		return cfg, err
 	}
 	if row.AuthType == "key" {
 		cfg.Key = sec
-		if cfg.KeyPass, err = s.d.Box.Open(cred.Passphrase); err != nil {
+		if cfg.KeyPass, err = box.Open(cred.Passphrase); err != nil {
 			return cfg, err
 		}
 	} else {
 		cfg.Password = string(sec)
 	}
 	var hk store.NodeHostKey
-	if err := s.d.Store.DB.First(&hk, "node_id = ?", row.ID).Error; err != nil {
+	if err := st.DB.First(&hk, "node_id = ?", row.ID).Error; err != nil {
 		return cfg, errors.New("主机密钥未确认")
 	}
 	if cfg.HostKey, err = parseKey(hk.Key); err != nil {

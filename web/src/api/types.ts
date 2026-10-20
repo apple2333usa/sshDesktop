@@ -397,3 +397,333 @@ export interface ProbeEvent {
   message: string
   ts: number
 }
+
+/* ---------- Docker ---------- */
+
+export interface DockerStatus {
+  installed: boolean
+  running: boolean
+  error?: string
+  version?: string
+  apiVersion?: string
+  compose?: string
+  socket: string
+  info?: {
+    Containers: number
+    ContainersRunning: number
+    ContainersStopped: number
+    Images: number
+    ServerVersion: string
+    Driver: string
+    DockerRootDir: string
+    OperatingSystem: string
+    NCPU: number
+    MemTotal: number
+  }
+}
+
+export interface DockerPort {
+  ip?: string
+  private: number
+  public?: number
+  proto: string
+}
+
+export interface DockerContainer {
+  id: string
+  name: string
+  image: string
+  imageId: string
+  command: string
+  created: number
+  state: string
+  status: string
+  ports: DockerPort[]
+  networks: string[]
+  ips: string[]
+  mounts: { type: string; name?: string; source: string; destination: string; rw: boolean }[]
+  labels: Record<string, string>
+  project?: string
+  service?: string
+  app?: string
+}
+
+export interface DockerStats {
+  cpuPercent: number
+  memUsage: number
+  memLimit: number
+  netRx: number
+  netTx: number
+  blockRead: number
+  blockWrite: number
+  pids: number
+}
+
+export interface DockerImage {
+  id: string
+  tags: string[]
+  digests: string[]
+  created: number
+  size: number
+  containers: string[]
+}
+
+export interface DockerNetwork {
+  id: string
+  name: string
+  driver: string
+  scope: string
+  internal: boolean
+  created: string
+  subnet: string
+  gateway: string
+  labels: Record<string, string>
+  containers: string[]
+  builtin: boolean
+}
+
+export interface DockerVolume {
+  name: string
+  driver: string
+  mountpoint: string
+  created: string
+  labels: Record<string, string>
+  containers: string[]
+  project?: string
+}
+
+export interface ComposeProject {
+  name: string
+  dir: string
+  files: string[]
+  managed: boolean
+  recorded: boolean
+  app?: string
+  running: number
+  total: number
+  services: string[]
+  status: 'running' | 'partial' | 'stopped' | 'missing'
+  created: number
+  containers: DockerContainer[]
+}
+
+/* ---------- 应用商店 ---------- */
+
+export interface StoreApp {
+  source: string
+  key: string
+  name: string
+  description: string
+  type: string
+  tags: string[]
+  website?: string
+  github?: string
+  document?: string
+  architectures: string[]
+  memoryRequired?: number
+  recommend: number
+  limit: number
+  crossVersionUpdate: boolean
+  versions: string[]
+  unsupported?: string
+  icon: string
+  installed: number
+}
+
+export interface StoreTag {
+  key: string
+  name: string
+  sort: number
+}
+
+export interface StoreField {
+  envKey: string
+  type: 'text' | 'password' | 'number' | 'select' | 'apps' | 'service' | string
+  default: unknown
+  required: boolean
+  rule?: string
+  random?: boolean
+  edit?: boolean
+  disabled?: boolean
+  multiple?: boolean
+  values?: { label: string; value: unknown }[]
+  label: string
+  hint?: string
+  value: string
+}
+
+export interface StoreSource {
+  id: string
+  name: string
+  type: 'index' | 'git' | 'dir'
+  url: string
+  enabled: boolean
+  builtin: boolean
+  apps?: number
+  error?: string
+  synced?: number
+}
+
+export interface InstalledApp {
+  name: string
+  source: string
+  key: string
+  title: string
+  version: string
+  dir: string
+  status: string
+  message: string
+  createdAt: string
+  updatedAt: string
+  state: 'running' | 'partial' | 'stopped' | 'installing' | 'failed' | 'upgrading' | string
+  running: number
+  total: number
+  ports: string[]
+  icon: string
+  upgrades: string[]
+  external: boolean
+  containers: string[]
+  busy: boolean
+}
+
+/* ---------- 计划任务 ---------- */
+
+export type CronType = 'shell' | 'backup' | 'url' | 'cleanup'
+
+export interface CronJob {
+  id: number
+  name: string
+  type: CronType
+  schedule: string
+  enabled: boolean
+  script: string
+  url: string
+  planId: number
+  cleanDirs: string
+  cleanPattern: string
+  cleanDays: number
+  timeout: number
+  keepRuns: number
+  lastRunAt: string | null
+  lastStatus: string
+  next?: number
+}
+
+export interface CronRun {
+  id: number
+  jobId: number
+  trigger: string
+  status: 'running' | 'success' | 'failed' | 'skipped'
+  exitCode: number
+  output?: string
+  startedAt: string
+  finishedAt: string | null
+  durationMs: number
+}
+
+export interface CronStatus {
+  installed: boolean
+  running: boolean
+  daemon: string
+  cronDir: boolean
+  file: string
+  bin: string
+  timezone: string
+}
+
+export interface CrontabLine {
+  no: number
+  kind: 'job' | 'env' | 'comment' | 'blank' | 'other'
+  raw: string
+  enabled: boolean
+  schedule?: string
+  user?: string
+  command?: string
+  next?: number
+}
+
+export interface CrontabFile {
+  path: string
+  user?: string
+  system: boolean
+  hash: string
+  lines: CrontabLine[]
+  readOnly: boolean
+  error?: string
+}
+
+export interface SystemdTimer {
+  unit: string
+  activates: string
+  next: number
+  last: number
+}
+
+/* ---------- 备份 ---------- */
+
+export type BackupTargetType = 'local' | 'sftp' | 's3' | 'webdav'
+
+export interface BackupTargetConfig {
+  path?: string
+  endpoint?: string
+  region?: string
+  bucket?: string
+  accessKey?: string
+  pathStyle?: boolean
+  url?: string
+  username?: string
+  nodeId?: string
+}
+
+export interface BackupTarget {
+  id: number
+  name: string
+  type: BackupTargetType
+  config: BackupTargetConfig
+  hasSecret: boolean
+  plans: number
+  createdAt: string
+}
+
+export interface BackupRecord {
+  id: number
+  planId: number
+  planName: string
+  type: 'dir' | 'app' | 'panel'
+  source: string
+  targetId: number
+  targetName: string
+  key: string
+  size: number
+  encrypted: boolean
+  status: 'running' | 'success' | 'failed'
+  trigger: 'manual' | 'cron' | 'snapshot'
+  error: string
+  startedAt: string
+  finishedAt: string | null
+}
+
+export interface BackupPlan {
+  id: number
+  name: string
+  type: 'dir' | 'app' | 'panel'
+  source: string
+  excludes: string
+  encrypt: boolean
+  keepCount: number
+  keepDays: number
+  stopApp: boolean
+  includeSecretKey: boolean
+  targetIds: number[]
+  hasPassword: boolean
+  schedule: string
+  last?: BackupRecord
+}
+
+export interface BackupObject {
+  key: string
+  size: number
+  modified: string
+  recordId?: number
+  encrypted: boolean
+}

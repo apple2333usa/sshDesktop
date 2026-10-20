@@ -19,6 +19,7 @@ import (
 
 	sshdesktop "github.com/apple2333usa/sshdesktop"
 	"github.com/apple2333usa/sshdesktop/internal/config"
+	"github.com/apple2333usa/sshdesktop/internal/module/cron"
 	"github.com/spf13/cobra"
 )
 
@@ -272,6 +273,7 @@ func uninstallCmd() *cobra.Command {
 			}
 			exec.Command("systemctl", "disable", "--now", "sshdesktop").Run()
 			os.Remove(unitPath)
+			os.Remove(cron.CronFile) // 否则 cron 会继续调用已删除的程序
 			exec.Command("systemctl", "daemon-reload").Run()
 			if purge {
 				os.RemoveAll(filepath.Dir(configPath))

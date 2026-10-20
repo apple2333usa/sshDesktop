@@ -1,12 +1,12 @@
 # sshDesktop
 
-> 版本：0.2.1 · 更新时间：2026-10-20 22:04 +08:00 · 状态：M2（多服务器）完成
+> 版本：0.3.0 · 更新时间：2026-10-21 00:05 +08:00 · 状态：M3（容器与应用）完成
 
 sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合了 [1Panel](https://github.com/1Panel-dev/1Panel) 的主机管理能力和[哪吒探针](https://github.com/nezhahq/nezha)的多机监控能力。除了传统的后台界面，它还提供**桌面模式**：在浏览器里渲染一个 Windows 11 风格的桌面，有任务栏、开始菜单、可拖拽的窗口和文件资源管理器，让你用操作 PC 的方式管理服务器。
 
 以 GPL-3.0 开源。
 
-## 当前功能（0.2.1）
+## 当前功能（0.3.0）
 
 | 功能 | 说明 | 代码 |
 | --- | --- | --- |
@@ -28,9 +28,13 @@ sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合
 | 按月流量 | 各服务器、各网卡的上行 / 下行 / 合计，每月重置日与额度（按合计、仅下行或仅上行计算），每日柱状图与最近 12 期；需要 agent 或面板 | `internal/module/traffic/`、`web/src/apps/traffic/` |
 | 批量命令 | 选择多台服务器并发执行（默认并发 5，可设超时），按服务器分栏实时显示输出和退出码，执行记录与共享命令片段；一级确认列出全部目标 | `internal/module/batch/`、`web/src/apps/batch/` |
 | 服务监控 | HTTP(S)（状态码、关键字）、TCP、Ping、SSL 证书到期，间隔最短 30 秒，结果保存 30 天，24 小时状态条、可用率与延迟曲线，异常和恢复进入通知中心 | `internal/module/probe/`、`web/src/apps/probes/` |
-| 命令行 | `server`、`info`、`user add/reset-password/list`、`config show/get/set/unset`、`upgrade`、`uninstall`、`version` | `cmd/sshdesktop/` |
+| Docker | 容器（创建、启停、暂停、强制停止、重命名、删除、实时日志、资源占用、进入容器终端）、Compose 项目（粘贴 YAML 新建或导入已有目录，启停、更新、编辑、删除，自动识别服务器上已有的项目）、镜像（拉取、删除、清理）、网络、存储卷；未安装时一键安装 Docker 与 Compose 插件 | `internal/docker/`、`internal/module/docker/`、`web/src/apps/docker/` |
+| 应用商店 | 兼容 1Panel 应用商店格式，默认使用 1Panel 的应用索引（264 个应用），可追加 Git 仓库或本机目录作为应用源；按表单填写参数安装，可选只监听本机；已安装应用的启停、重建、修改参数、升级（失败自动回滚）、日志、卸载（可选保留数据）。依赖其他应用（如数据库）的 52 个应用和 9 个网站运行环境暂不支持 | `internal/module/appstore/`、`web/src/apps/appstore/` |
+| 计划任务 | Shell 脚本、备份、访问 URL、清理日志四种任务，写入 `/etc/cron.d/sshdesktop` 由系统 cron 调用 `sshdesktop cron run` 执行（面板停止时照常运行），每次执行的输出和退出码都有记录，可设超时；系统已有的 crontab 全部列出，可启用 / 停用、修改、删除或按原始文本编辑；只读列出 systemd 定时器 | `internal/cronexpr/`、`internal/module/cron/`、`cmd/sshdesktop/cron.go`、`web/src/apps/cron/` |
+| 备份与恢复 | 备份目录、应用或面板数据到本机目录、远程服务器（SFTP）、S3 兼容存储、WebDAV；可定时、可加密（与 OpenSSL 兼容，没有面板也能解密）、按份数和天数保留；恢复为二级确认，恢复前自动快照（可撤销），目录可恢复到其他位置，面板数据在重启时换入 | `internal/backup/`、`internal/module/backup/`、`web/src/apps/backup/` |
+| 命令行 | `server`、`info`、`user add/reset-password/list`、`config show/get/set/unset`、`cron run/sync`、`upgrade`、`uninstall`、`version` | `cmd/sshdesktop/` |
 
-后续里程碑：容器与应用 → 网站与安全，详见 [docs/design.md](docs/design.md)。Docker、网站、防火墙等高权限功能只对本机开放。
+下一个里程碑：网站与安全（网站与证书、面板 HTTPS、防火墙、SSH 设置），详见 [docs/design.md](docs/design.md)。Docker、应用商店、计划任务、备份等高权限功能只对本机开放。
 
 ## 安装
 
@@ -84,9 +88,9 @@ cd web
 SD_URL=http://127.0.0.1:33333 SD_USER=<账号> SD_PASS=<密码> npx playwright test
 ```
 
-在没有 systemd 的容器里加 `SD_NO_SYSTEMD=1` 跳过服务列表断言；`SD_SHOTS=1` 额外截图。多服务器用例（`e2e/servers.spec.ts`）需要一台可 SSH 登录的服务器，设置 `SD_SSH_HOST`、`SD_SSH_PORT`、`SD_SSH_USER`、`SD_SSH_PASS`（可以就是面板所在的机器），没设置时跳过。
+在没有 systemd 的容器里加 `SD_NO_SYSTEMD=1` 跳过服务列表断言；`SD_SHOTS=<目录>` 额外截图到该目录。M3 用例（`e2e/m3.spec.ts`：容器与 Compose、本机目录源安装应用、计划任务、加密备份与恢复）要求测试和面板在同一台机器上、面板以 root 运行并装有 Docker，设置 `SD_M3=1` 启用。多服务器用例（`e2e/servers.spec.ts`）需要一台可 SSH 登录的服务器，设置 `SD_SSH_HOST`、`SD_SSH_PORT`、`SD_SSH_USER`、`SD_SSH_PASS`（可以就是面板所在的机器），没设置时跳过。
 
-Go 测试里的远程节点用进程内 SSH 服务器（`internal/node/sshtest/`，支持密码与私钥认证、exec、PTY、SFTP 和 Unix socket 转发），不需要真实的 sshd。
+Go 测试里的远程节点用进程内 SSH 服务器（`internal/node/sshtest/`，支持密码与私钥认证、exec、PTY、SFTP 和 Unix socket 转发），不需要真实的 sshd。Docker、应用商店和备份的集成测试（`internal/server/m3_test.go`）需要 root 和可用的 Docker，否则跳过；S3 目标测试设置 `SSHD_TEST_S3=<地址>,<存储桶>,<AccessKey>,<SecretKey>` 时运行，真实应用索引的解析测试设置 `SSHD_TEST_INDEX=<索引文件>` 时运行。
 
 CI（`.github/workflows/ci.yml`）在推送 main 和 PR 时跑 Go vet 与测试、前端类型检查与单元测试、构建并冒烟启动；推送 `v*` 标签时 `release.yml` 构建并发布 GitHub Release。
 
@@ -98,7 +102,8 @@ CI（`.github/workflows/ci.yml`）在推送 main 和 PR 时跑 Go vet 与测试�
 | `cmd/sshdesktop-agent/`、`internal/agent/`、`internal/agentbin/` | 独立 agent、采集与 agent 接口、嵌入面板的 agent 二进制 |
 | `internal/node/` | 节点抽象：本机与 SSH 远程节点（连接、重连、并发限制、SFTP），`sshtest/` 为测试用 SSH 服务器 |
 | `internal/server/` | HTTP 服务、路由、中间件、访问控制 |
-| `internal/module/` | 各功能模块的后端（节点、监控、流量、批量命令、服务监控、文件、终端、进程、服务、账号、系统、桌面） |
+| `internal/module/` | 各功能模块的后端（节点、监控、流量、批量命令、服务监控、文件、终端、进程、服务、Docker、应用商店、计划任务、备份、账号、系统、桌面） |
+| `internal/docker/`、`internal/backup/`、`internal/cronexpr/` | Docker Engine API 与 Compose 调用、备份打包加密与存储目标、cron 表达式解析 |
 | `internal/auth/`、`internal/rbac/`、`internal/audit/` | 登录、权限、审计 |
 | `internal/config/`、`internal/store/`、`internal/task/`、`internal/realtime/`、`internal/secret/` | 配置、SQLite 存储、后台任务、WebSocket 推送、凭据加密 |
 | `web/` | 前端（Vue 3 + TypeScript + Naive UI），`web/e2e/` 为端到端测试 |

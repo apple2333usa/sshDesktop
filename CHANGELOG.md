@@ -48,3 +48,30 @@
   - agent 装了一半时卡片菜单没有“卸载 agent”：来源为“无 agent”时也提供卸载。
 - 对应文件：`internal/agent/activation.go`、`internal/agent/activation_test.go`、`internal/agent/server.go`、`cmd/sshdesktop-agent/main.go`、`internal/module/nodes/agent.go`、`scripts/install.sh`、`cmd/sshdesktop/upgrade.go`、`cmd/sshdesktop/cli.go`、`internal/config/config.go`、`web/src/stores/desktop.ts`、`web/src/stores/desktop.test.ts`、`web/src/apps/servers/ServersApp.vue`、`web/src/i18n/zh-CN.ts`、`VERSION`、`web/package.json`、`docs/design.md`、`README.md`、`docs/readme-history/README-v0.2.0-20261020-204500.md`
 - 验证与限制：0.2.0 在测试服务器上 e2e 桌面 9、手机 1、多服务器 6 项通过（远程服务器为本机 sshd，用密码登录的临时 sudo 账号）；前两轮各有 1 项因上述窗口恢复问题偶发失败。修正后容器内 `go vet`、`go test ./...`（新增 socket 激活测试）、前端类型检查与 vitest 8 项（新增恢复竞争测试）通过。用 PR 构建的 0.2.1 在测试服务器上（`upgrade --file`）实测：普通账号经 sudo 一键安装成功，socket 与服务均 active，`/run/sshdesktop` 为 root 的 0755 目录、`agent.sock` 0666，普通用户可读接口，卡片来源变为 agent 0.2.1，约 6 分钟后流量统计出现数据；覆盖安装与卸载正常，卸载后只剩空的 `/run/sshdesktop` 目录。临时账号与配置已清理，面板临时管理员 `e2e-check` 无法用命令行删除，已改为随机密码并注销会话，待在“账号”应用中删除。窗口恢复的修正未在服务器上重跑 e2e；在线升级的修正要从 0.2.1 升到下一版时才能实测。
+
+## 2026-10-21 00:05 +08:00 · 0.3.0 · M3：容器与应用
+
+- 简介：实现设计文档里程碑 M3。后端：
+  - Docker：直接调用 Engine API（不再用官方 SDK，见设计文档 3.3），管理容器、镜像、网络、存储卷和 Compose 项目，一键安装 Docker，终端可进入容器。
+  - 应用商店：兼容 1Panel 格式，支持索引、Git、本机目录三种应用源，默认使用 1Panel 索引。支持安装、启停、重建、修改参数、升级（失败自动还原）和卸载。端口可只绑定 127.0.0.1。
+  - 计划任务：Shell、备份、URL、清理日志四种任务，写入 `/etc/cron.d/sshdesktop`，由新增的 `sshdesktop cron run/sync` 执行并记录输出，支持超时和防重入。系统 crontab 可以接管（停用标记、修改前备份），systemd 定时器只读列出。
+  - 备份与恢复：
+    - 支持本机、SFTP（经已添加的服务器）、S3、WebDAV 四种目标。
+    - tar.gz 格式，加密与 OpenSSL 兼容，按目标分别执行保留策略。
+    - 恢复前做快照，保留 10 份，可以撤销；目录可以恢复到其他位置。
+    - 面板数据在重启时换入，备份中的配置另存为 `.from-backup`。
+  - 新增权限点 `docker:*`、`appstore:*`、`cron:*`、`backup:*`，manage 级都标为等同 root。
+  - 前端新增 Docker、应用商店、计划任务、备份与恢复四个应用，以及通用的任务日志窗口和日志流组件。
+  - 端到端测试中发现并修正了三个问题：
+    - 安装应用后的任务窗口一直显示“进行中”：接口返回的是 `{task, app}`。
+    - 镜像仓库限流时安装失败：拉取失败后改为用本机已有的镜像继续启动。
+    - 1Panel 的 9 个网站运行环境显示为可以安装：现在标为暂不支持，放到 M4 网站管理中。
+  - 依赖其他应用的 52 个商店应用暂不支持，网站备份和安装后创建反向代理也放到 M4，已记入设计文档第 13 节。
+- 对应文件：`internal/docker/`、`internal/backup/`、`internal/cronexpr/`、`internal/module/docker/`、`internal/module/appstore/`、`internal/module/cron/`、`internal/module/backup/`、`internal/module/nodes/nodes.go`、`internal/module/nodes/agent.go`、`internal/module/terminal/terminal.go`、`internal/node/node.go`、`internal/node/local_pty.go`、`internal/task/task.go`、`internal/store/models.go`、`internal/rbac/rbac.go`、`internal/api/api.go`、`internal/server/server.go`、`internal/server/m3_test.go`、`cmd/sshdesktop/cron.go`、`cmd/sshdesktop/main.go`、`cmd/sshdesktop/upgrade.go`、`go.mod`、`go.sum`、`web/src/apps/docker/`、`web/src/apps/appstore/`、`web/src/apps/cron/`、`web/src/apps/backup/`、`web/src/apps/terminal/TerminalApp.vue`、`web/src/apps/registry.ts`、`web/src/components/TaskLog.vue`、`web/src/components/LogStream.vue`、`web/src/components/icons.ts`、`web/src/api/types.ts`、`web/src/api/http.ts`、`web/src/i18n/zh-CN.ts`、`web/e2e/m3.spec.ts`、`web/e2e/shots.spec.ts`、`VERSION`、`web/package.json`、`web/package-lock.json`、`docs/design.md`、`README.md`、`docs/readme-history/README-v0.2.1-20261020-220400.md`
+- 验证与限制：
+  - 在云端容器（root，Docker 29.9.1，Compose 5.6.0）中运行：
+    - `go vet`、`go test ./...` 通过。新增测试覆盖 cron 表达式、crontab 解析与改写、任务执行（超时、跳过、清理、保留条数）、应用索引解析、表单校验、端口改写，以及备份的加密往返、OpenSSL 互通、排除规则、路径穿越拒绝、本机 / WebDAV 目标、保留策略、恢复与快照撤销、面板备份与重启换入。集成测试在真实 Docker 上跑完容器、Compose、本机源安装 / 升级 / 卸载应用、应用备份与恢复，并用进程内 SSH 服务器测试 SFTP 目标和计划任务。
+    - S3 目标用 rclone 模拟的 S3 服务测试通过，真实 1Panel 索引（264 个应用、17 个分类，61 个暂不支持）解析通过。
+    - 前端类型检查、构建和 vitest 8 项通过。
+    - Playwright e2e 通过：桌面 9 项、手机 1 项、M3 新增 4 项（`SD_NO_SYSTEMD=1`）。多服务器用例这次没有跑。
+  - 还没有在测试服务器上验证 Docker 一键安装、真实应用安装、S3 / WebDAV 云存储、系统 cron 定时触发和 systemd 下的面板恢复后自动重启。

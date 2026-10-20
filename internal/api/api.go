@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 错误码按模块分段：1xxx 通用，2xxx 登录与账号，3xxx 文件，4xxx 终端，5xxx 进程与服务。
+// 错误码按模块分段：1xxx 通用，2xxx 登录与账号，3xxx 文件，4xxx 终端，5xxx 进程与服务，6xxx 节点。
 const (
 	CodeOK              = 0
 	CodeBadRequest      = 1001
@@ -43,6 +43,10 @@ const (
 	CodeSessionGone = 4001
 
 	CodeCommandFailed = 5001
+
+	CodeHostKeyChanged = 6001
+	CodeNodeOffline    = 6002
+	CodeAgentFailed    = 6003
 )
 
 type Error struct {

@@ -28,6 +28,10 @@ const (
 	SystemPower    = "system:power"
 	UsersManage    = "users:manage"
 	SettingsManage = "settings:manage"
+	NodesManage    = "nodes:manage"
+	BatchRun       = "batch:run"
+	ProbeView      = "probe:view"
+	ProbeManage    = "probe:manage"
 )
 
 // Catalog 是当前版本支持的全部权限点，顺序即界面展示顺序。
@@ -38,6 +42,10 @@ var Catalog = []Perm{
 	{Key: TerminalUse, Module: "terminal", RootEquivalent: true},
 	{Key: ProcessView, Module: "process"},
 	{Key: ProcessManage, Module: "process"},
+	{Key: NodesManage, Module: "nodes", RootEquivalent: true},
+	{Key: BatchRun, Module: "batch", RootEquivalent: true},
+	{Key: ProbeView, Module: "probe"},
+	{Key: ProbeManage, Module: "probe"},
 	{Key: AuditView, Module: "audit"},
 	{Key: SystemPower, Module: "system"},
 	{Key: UsersManage, Module: "users", AdminOnly: true},
@@ -67,9 +75,9 @@ func Seed(db *gorm.DB) error {
 	}{
 		{store.Role{Name: AdminRoleName, IsAdmin: true, Description: "全部权限，不可修改"}, nil},
 		{store.Role{Name: OpsRoleName, Description: "日常运维：监控、文件、终端、进程与服务"},
-			[]string{MonitorView, FilesView, FilesManage, TerminalUse, ProcessView, ProcessManage, AuditView}},
+			[]string{MonitorView, FilesView, FilesManage, TerminalUse, ProcessView, ProcessManage, AuditView, BatchRun, ProbeView, ProbeManage}},
 		{store.Role{Name: ReadonlyRoleName, Description: "只能查看监控、文件和进程"},
-			[]string{MonitorView, FilesView, ProcessView}},
+			[]string{MonitorView, FilesView, ProcessView, ProbeView}},
 	}
 	for _, s := range seeds {
 		var n int64

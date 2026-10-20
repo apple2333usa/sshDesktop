@@ -1,5 +1,5 @@
 // Package node 是节点抽象。所有功能模块只依赖 Node 接口，不关心节点是本机还是远程。
-// M1 只有本机节点；SSH 节点在 M2 加入。
+// 本机节点固定为 local，远程节点通过 SSH 管理（见 ssh.go）。
 package node
 
 import (
@@ -59,6 +59,16 @@ type Node interface {
 }
 
 var ErrNotFound = errors.New("节点不存在")
+
+// AcquireTransfer 为一次大块数据传输占用节点的传输名额（远程节点最多 8 个并发），返回释放函数。
+func AcquireTransfer(ctx context.Context, n Node) (func(), error) {
+	if t, ok := n.(interface {
+		AcquireTransfer(context.Context) (func(), error)
+	}); ok {
+		return t.AcquireTransfer(ctx)
+	}
+	return func() {}, nil
+}
 
 // Registry 保存本机和所有远程节点。
 type Registry struct {

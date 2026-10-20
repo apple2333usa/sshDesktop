@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apple2333usa/sshdesktop/internal/agent"
 	"github.com/apple2333usa/sshdesktop/internal/vfs"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -56,6 +57,8 @@ type SSHConfig struct {
 	KeyPass  []byte
 	Password string
 	HostKey  ssh.PublicKey
+	// Err 不为空表示配置不可用（例如凭据无法解密），节点不会尝试连接。
+	Err string
 }
 
 func (c SSHConfig) addr() string { return net.JoinHostPort(c.Host, strconv.Itoa(c.Port)) }
@@ -216,13 +219,17 @@ type SSH struct {
 	ready  chan struct{} // 每次状态变化时关闭并替换，用于等待连接
 	wake   chan struct{}
 	sem    chan struct{}
+	tsem   chan struct{}
 	fs     *vfs.SFTP
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// 每个节点同时最多 32 个 SSH 通道，避免拖垮远程 sshd。
-const maxChannels = 32
+// 每个节点同时最多 32 个 SSH 通道、8 个 SFTP 传输，避免拖垮远程 sshd。
+const (
+	maxChannels  = 32
+	maxTransfers = 8
+)
 
 // NewSSH 创建节点并在后台开始连接。onStatus 在状态变化时调用。
 func NewSSH(cfg SSHConfig, onStatus func(id string, st Status)) *SSH {
@@ -231,9 +238,13 @@ func NewSSH(cfg SSHConfig, onStatus func(id string, st Status)) *SSH {
 		cfg: cfg, onStatus: onStatus,
 		status: Status{State: StateConnecting, Since: time.Now().UnixMilli()},
 		ready:  make(chan struct{}), wake: make(chan struct{}, 1),
-		sem: make(chan struct{}, maxChannels), ctx: ctx, cancel: cancel,
+		sem: make(chan struct{}, maxChannels), tsem: make(chan struct{}, maxTransfers), ctx: ctx, cancel: cancel,
 	}
 	n.fs = n.newFS()
+	if cfg.Err != "" {
+		n.status = Status{State: StateAuthFailed, Error: cfg.Err, Since: time.Now().UnixMilli()}
+		return n
+	}
 	auth, err := cfg.auth()
 	if err != nil {
 		n.status = Status{State: StateAuthFailed, Error: err.Error(), Since: time.Now().UnixMilli()}
@@ -402,6 +413,9 @@ func (n *SSH) Client(ctx context.Context) (*ssh.Client, error) {
 		if c != nil {
 			return c, nil
 		}
+		if n.auth == nil { // 配置不可用，不会连接
+			return nil, fmt.Errorf("%w：%s", ErrOffline, st.Error)
+		}
 		if st.State != StateConnecting && st.State != "" {
 			n.Reconnect()
 		}
@@ -435,6 +449,17 @@ func (n *SSH) acquire(ctx context.Context) error {
 }
 
 func (n *SSH) release() { <-n.sem }
+
+// AcquireTransfer 占用一个 SFTP 传输名额（上传、下载、复制等大块数据传输），返回释放函数。
+func (n *SSH) AcquireTransfer(ctx context.Context) (func(), error) {
+	select {
+	case n.tsem <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func() { <-n.tsem }) }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
 
 func (n *SSH) session(ctx context.Context) (*ssh.Session, error) {
 	c, err := n.Client(ctx)
@@ -570,6 +595,11 @@ func (n *SSH) DialUnix(ctx context.Context, path string) (net.Conn, error) {
 		return nil, err
 	}
 	return c.Dial("unix", path)
+}
+
+// AgentClient 返回经 SSH 通道访问远程 agent 接口（/run/sshdesktop/agent.sock）的客户端。
+func (n *SSH) AgentClient() *agent.Client {
+	return agent.NewClient(func(ctx context.Context) (net.Conn, error) { return n.DialUnix(ctx, agent.SocketPath) })
 }
 
 type sshPTY struct {
@@ -728,6 +758,12 @@ func ParseDF(out string) []vfs.MountUsage {
 	}
 	return list
 }
+
+// Addr 返回 host:port。
+func (n *SSH) Addr() string { return n.cfg.addr() }
+
+// Host 返回主机地址。
+func (n *SSH) Host() string { return n.cfg.Host }
 
 // User 返回登录用户名。
 func (n *SSH) User() string { return n.cfg.User }

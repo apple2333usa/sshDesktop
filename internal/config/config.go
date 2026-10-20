@@ -30,6 +30,8 @@ type Config struct {
 	LogLevel string `yaml:"logLevel"`
 	// Listen 仅用于开发调试：覆盖自动选择的监听地址。生产环境留空。
 	Listen string `yaml:"listen,omitempty"`
+	// AgentSocket 是面板自带 agent 接口的 Unix socket，留空为 /run/sshdesktop/agent.sock，"-" 表示不提供。
+	AgentSocket string `yaml:"agentSocket,omitempty"`
 
 	path string `yaml:"-"`
 }

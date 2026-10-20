@@ -13,3 +13,9 @@
 - 简介：完成五轮需求讨论，撰写设计文档初稿（架构、节点与连接模型、前后端设计、17 个功能模块、环境体检与接管、安全、部署、开发流程、4 个里程碑）；确定以 GPL-3.0 开源；README 改写为项目当前状态。
 - 对应文件：`docs/requirements.md`、`docs/design.md`、`README.md`、`LICENSE`、`CHANGELOG.md`、`docs/readme-history/README-未设版本-archived-20261020-163024.md`
 - 验证与限制：仅文档变更，无代码可测试。设计文档已由用户确认（PR #1 合并），仓库同时改为公开；文中依赖库版本为 2026-10 查询结果，开工时再核对。
+
+## 2026-10-20 17:58 +08:00 · 0.1.0 · M1：单机桌面
+
+- 简介：实现设计文档里程碑 M1。后端（Go + Gin + SQLite）：启动配置与命令行（server、info、user、config、upgrade、uninstall、version）、登录会话与 CSRF、二级确认、暴力破解封禁、仅本机访问与 Host 校验、账号角色与功能权限、操作审计、后台任务与 WebSocket 推送，以及监控、终端、文件（含压缩、权限、回收站）、进程、系统服务、系统设置模块。前端（Vue 3 + Naive UI）：Win11 桌面外观（任务栏、开始菜单、多窗口、通知、深浅色）、管理后台外观，以及监控、终端、文件资源管理器、编辑器、预览、进程、服务、账号、审计、设置应用；中文界面。另有一键安装脚本、systemd 单元、Makefile、CI 与发布流程。README 改写为当前状态。
+- 对应文件：`cmd/sshdesktop/`、`internal/`、`embed.go`、`web/`、`scripts/install.sh`、`Makefile`、`VERSION`、`.github/workflows/ci.yml`、`.github/workflows/release.yml`、`.gitignore`、`README.md`、`docs/readme-history/README-未设版本-20261020-163000.md`
+- 验证与限制：容器内 `go vet`、`go test ./...`（访问控制、登录与 CSRF、封禁、权限、文件流程、压缩往返与 zip-slip、回收站、最后一个管理员保护、配置、密码、服务解析）通过；前端类型检查与 vitest 7 项通过；Playwright e2e 桌面 9 项与手机 1 项通过（容器无 systemd，服务列表断言以 `SD_NO_SYSTEMD` 跳过）。测试服务器部署结果待补充。尚未在真实浏览器中人工验证与操作系统之间的拖放、PDF 预览和关机重启。

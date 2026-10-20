@@ -8,6 +8,7 @@ import type { TrashItem } from '@/api/types'
 import { withDanger } from '@/components/danger'
 import { errorText, formatBytes, formatTime } from '@/i18n'
 import { useSession } from '@/stores/session'
+import { useNodes } from '@/stores/nodes'
 import { fileKind } from '@/components/icons'
 import SdIcon from '@/components/SdIcon.vue'
 
@@ -15,6 +16,8 @@ const props = defineProps<{ node: string }>()
 const { t } = useI18n()
 const message = useMessage()
 const session = useSession()
+const nodes = useNodes()
+const nodeLabel = () => (props.node === 'local' ? undefined : nodes.label(props.node))
 const items = ref<TrashItem[]>([])
 const checked = ref<string[]>([])
 const loading = ref(false)
@@ -51,7 +54,7 @@ async function purge() {
   const list = selectedItems.value
   try {
     await withDanger(
-      { level: 2, action: t('explorer.permanentDeleteAction'), impact: list.map((i) => i.original), confirmText: t('explorer.deleteN', { n: list.length }) },
+      { level: 2, action: t('explorer.permanentDeleteAction'), node: nodeLabel(), impact: list.map((i) => i.original), confirmText: t('explorer.deleteN', { n: list.length }) },
       (pw) => filesApi.trashDelete(props.node, list.map((i) => ({ root: i.root, id: i.id })), pw!),
     )
   } catch (e) {
@@ -63,7 +66,7 @@ async function purge() {
 async function empty() {
   try {
     await withDanger(
-      { level: 2, action: t('explorer.emptyTrashAction'), impact: t('explorer.emptyTrashImpact', { n: items.value.length }), confirmText: t('explorer.emptyTrash') },
+      { level: 2, action: t('explorer.emptyTrashAction'), node: nodeLabel(), impact: t('explorer.emptyTrashImpact', { n: items.value.length }), confirmText: t('explorer.emptyTrash') },
       (pw) => filesApi.trashEmpty(props.node, pw!),
     )
   } catch (e) {

@@ -3,7 +3,8 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from '@/api/http'
 import { realtime } from '@/api/realtime'
-import type { Task, TaskEvent } from '@/api/types'
+import type { ProbeEvent, Task, TaskEvent } from '@/api/types'
+import { useSession } from './session'
 
 export type NoticeType = 'info' | 'success' | 'warning' | 'error'
 
@@ -29,6 +30,7 @@ export const useNotify = defineStore('notify', () => {
   const tasks = ref<Record<string, Task>>({})
   const waiters = new Map<string, ((t: Task) => void)[]>()
   let unsub: (() => void) | null = null
+  let unsubProbe: (() => void) | null = null
 
   const unread = computed(() => list.value.filter((n) => !n.read).length)
   const running = computed(() => list.value.filter((n) => n.progress !== undefined && !n.done))
@@ -114,13 +116,25 @@ export const useNotify = defineStore('notify', () => {
     await api.post(`/tasks/${id}/cancel`)
   }
 
+  // 服务监控的异常与恢复
+  function onProbe(ev: ProbeEvent) {
+    push({
+      type: ev.ok ? 'success' : 'error',
+      title: ev.ok ? `${ev.name} 已恢复` : `${ev.name} 异常`,
+      content: ev.ok ? ev.target : `${ev.target}：${ev.message}`,
+    })
+  }
+
   function start() {
     if (!unsub) unsub = realtime.subscribe('tasks', onTask)
+    if (!unsubProbe && useSession().has('probe:view')) unsubProbe = realtime.subscribe('probe-events', onProbe)
   }
 
   function stop() {
     unsub?.()
+    unsubProbe?.()
     unsub = null
+    unsubProbe = null
     list.value = []
     toasts.value = []
   }

@@ -725,11 +725,21 @@ func (n *SSH) newFS() *vfs.SFTP {
 		},
 		Home: func() string {
 			n.mu.Lock()
-			defer n.mu.Unlock()
-			if n.home == "" {
+			home := n.home
+			n.mu.Unlock()
+			if home == "" {
+				// 家目录在建立 SFTP 会话时取得；还没建立过就先建立
+				ctx, cancel := context.WithTimeout(n.ctx, 15*time.Second)
+				defer cancel()
+				n.SFTP(ctx)
+				n.mu.Lock()
+				home = n.home
+				n.mu.Unlock()
+			}
+			if home == "" {
 				return "/root"
 			}
-			return n.home
+			return home
 		},
 		Mounts: n.mounts,
 	}

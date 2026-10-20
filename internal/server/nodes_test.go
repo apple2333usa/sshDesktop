@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apple2333usa/sshdesktop/internal/agent"
 	"github.com/apple2333usa/sshdesktop/internal/api"
 	"github.com/apple2333usa/sshdesktop/internal/node"
 	"github.com/apple2333usa/sshdesktop/internal/node/sshtest"
@@ -162,7 +163,11 @@ func TestNodeLifecycle(t *testing.T) {
 		t.Fatalf("应超时：%+v", detail.Results[0])
 	}
 
-	// 无 agent 时经 SSH 采集监控
+	// 无 agent 时经 SSH 采集监控（本机若正运行着面板或 agent，会探测到它的 socket，来源变成 panel / agent）
+	want := "ssh"
+	if _, err := os.Stat(agent.SocketPath); err == nil {
+		want = ""
+	}
 	if !testing.Short() {
 		deadline := time.Now().Add(25 * time.Second)
 		ok := false
@@ -175,7 +180,7 @@ func TestNodeLifecycle(t *testing.T) {
 			}
 			json.Unmarshal(r.Data, &ov)
 			for _, o := range ov {
-				if o.ID == id && o.Source == "ssh" && o.Sample != nil && o.Sample.MemTotal > 0 {
+				if o.ID == id && (o.Source == want || want == "" && o.Source != "") && o.Sample != nil && o.Sample.MemTotal > 0 {
 					ok = true
 				}
 			}

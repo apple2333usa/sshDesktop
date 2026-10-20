@@ -230,3 +230,170 @@ export interface RuntimeSettings {
   trashRetentionDays: number
   auditRetentionDays: number
 }
+
+/* ---------- 多服务器 ---------- */
+
+export type NodeState = 'connecting' | 'online' | 'offline' | 'hostkey-mismatch' | 'auth-failed'
+
+export interface NodeStatus {
+  state: NodeState
+  error?: string
+  since: number
+  latencyMs: number
+}
+
+export interface NodeView {
+  id: string
+  kind: 'local' | 'ssh'
+  name: string
+  host: string
+  port: number
+  username: string
+  authType: 'key' | 'password' | ''
+  color: string
+  sortOrder: number
+  trafficResetDay: number
+  trafficQuota: number
+  trafficQuotaMode: 'sum' | 'rx' | 'tx' | ''
+  createdAt: string
+  updatedAt: string
+  status: NodeStatus
+  hostKey?: { type: string; fingerprint: string; confirmedAt: string }
+}
+
+export interface HostKeyScan {
+  keyType: string
+  key: string
+  fingerprint: string
+}
+
+export interface NodeForm {
+  name: string
+  host: string
+  port: number
+  username: string
+  authType: 'key' | 'password'
+  password: string
+  privateKey: string
+  passphrase: string
+  hostKey: string
+  color: string
+}
+
+export type MonitorSource = 'local' | 'agent' | 'panel' | 'ssh' | ''
+
+export interface Overview {
+  id: string
+  source: MonitorSource
+  agentVersion?: string
+  info: HostInfo | null
+  sample: Sample | null
+  error?: string
+}
+
+export interface TrafficUsage {
+  nodeId: string
+  start: number
+  end: number
+  rx: number
+  tx: number
+  quota: number
+  quotaMode: 'sum' | 'rx' | 'tx'
+  used: number
+  percent: number
+  resetDay: number
+  supported: boolean
+}
+
+export interface TrafficDetail {
+  usage: TrafficUsage
+  days: { day: number; rx: number; tx: number }[]
+  ifaces: { iface: string; rx: number; tx: number }[]
+  cycles: TrafficUsage[]
+}
+
+export type BatchStatus = 'pending' | 'running' | 'done' | 'failed' | 'timeout' | 'canceled'
+
+export interface BatchResult {
+  runId: string
+  nodeId: string
+  status: BatchStatus
+  exitCode: number
+  output: string
+  error: string
+  durationMs: number
+  /** 执行中查询时 output 包含的推送片段数 */
+  seq?: number
+}
+
+export interface BatchRun {
+  id: string
+  userId: number
+  username: string
+  command: string
+  nodes: string
+  timeout: number
+  createdAt: string
+  finishedAt: string | null
+  results: BatchResult[] | null
+  running: boolean
+}
+
+export interface BatchEvent {
+  runId: string
+  nodeId: string
+  status?: BatchStatus
+  output?: string
+  seq?: number
+  exitCode?: number
+  error?: string
+  durationMs?: number
+  finished?: boolean
+}
+
+export interface Snippet {
+  id: number
+  name: string
+  command: string
+  createdAt: string
+}
+
+export type ProbeType = 'http' | 'tcp' | 'ping' | 'ssl'
+
+export interface Probe {
+  id: number
+  name: string
+  type: ProbeType
+  target: string
+  interval: number
+  timeout: number
+  keyword: string
+  expectStatus: string
+  sslWarnDays: number
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProbeResult {
+  ts: number
+  ok: boolean
+  latencyMs: number
+  message: string
+}
+
+export interface ProbeView extends Probe {
+  last: ProbeResult | null
+  stats: { uptime24h: number; uptime7d: number; uptime30d: number; avgLatency24h: number }
+  recent: number[]
+}
+
+export interface ProbeEvent {
+  probeId: number
+  name: string
+  type: ProbeType
+  target: string
+  ok: boolean
+  message: string
+  ts: number
+}

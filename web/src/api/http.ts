@@ -26,6 +26,9 @@ export const Codes = {
   FileTooLarge: 3006,
   BinaryFile: 3007,
   SessionGone: 4001,
+  HostKeyChanged: 6001,
+  NodeOffline: 6002,
+  AgentFailed: 6003,
 } as const
 
 export interface RequestOptions {

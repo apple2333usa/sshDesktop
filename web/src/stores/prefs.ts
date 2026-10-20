@@ -24,7 +24,7 @@ export function defaultPrefs(): Prefs {
     theme: 'auto',
     wallpaper: 'bloom',
     appearance: 'auto',
-    pinned: ['explorer', 'terminal', 'monitor', 'processes', 'settings'],
+    pinned: ['explorer', 'terminal', 'servers', 'monitor', 'processes', 'settings'],
     terminal: {
       fontSize: 14,
       scheme: 'dark',

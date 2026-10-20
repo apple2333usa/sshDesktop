@@ -36,13 +36,15 @@ type Service struct {
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
+	// live 是执行中各节点的输出（运行 ID → 节点 ID），查询时用它补上还没写入数据库的输出
+	live map[string]map[string]*output
 }
 
 func New(st *store.Store, nodes *node.Registry, hub *realtime.Hub, audit func(string, string) gin.HandlerFunc) *Service {
 	// 上次面板退出时仍在运行的记录标记为中断
 	st.DB.Model(&store.BatchResult{}).Where("status = ?", "running").
 		Updates(map[string]any{"status": "failed", "error": "面板重启，执行中断"})
-	return &Service{st: st, nodes: nodes, hub: hub, audit: audit, running: map[string]context.CancelFunc{}}
+	return &Service{st: st, nodes: nodes, hub: hub, audit: audit, running: map[string]context.CancelFunc{}, live: map[string]map[string]*output{}}
 }
 
 func (s *Service) Register(r *gin.RouterGroup, run gin.HandlerFunc) {
@@ -57,12 +59,14 @@ func (s *Service) Register(r *gin.RouterGroup, run gin.HandlerFunc) {
 	r.DELETE("/batch/snippets/:id", run, a("batch", "snippet-delete"), s.deleteSnippet)
 }
 
-// Event 是推送到 batch:<runId> 频道的消息。
+// Event 是推送到 batch:<runId> 频道的消息。输出片段带序号 Seq（每个节点从 1 递增），
+// 客户端用它和查询结果中的 seq 对齐：订阅之前已推送的片段从查询结果里取，重复的丢弃，缺失时重新查询。
 type Event struct {
 	RunID      string `json:"runId"`
 	NodeID     string `json:"nodeId"`
 	Status     string `json:"status,omitempty"`
 	Output     string `json:"output,omitempty"` // 新增的输出片段
+	Seq        int    `json:"seq,omitempty"`
 	ExitCode   *int   `json:"exitCode,omitempty"`
 	Error      string `json:"error,omitempty"`
 	DurationMs int64  `json:"durationMs,omitempty"`
@@ -112,6 +116,14 @@ func (s *Service) get(c *gin.Context) {
 	}
 	var results []store.BatchResult
 	s.st.DB.Where("run_id = ?", run.ID).Find(&results)
+	s.mu.Lock()
+	live := s.live[run.ID]
+	s.mu.Unlock()
+	for i := range results {
+		if o := live[results[i].NodeID]; o != nil {
+			results[i].Output, results[i].Seq = o.snapshot()
+		}
+	}
 	api.OK(c, runView{BatchRun: run, Results: results, Running: s.isRunning(run.ID)})
 }
 
@@ -179,6 +191,7 @@ func (s *Service) start(c *gin.Context) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
 	s.running[run.ID] = cancel
+	s.live[run.ID] = map[string]*output{}
 	s.mu.Unlock()
 	go s.execute(ctx, cancel, run, ids, req.Concurrency)
 	api.OK(c, runView{BatchRun: run, Results: results, Running: true})
@@ -191,6 +204,7 @@ func (s *Service) execute(ctx context.Context, cancel context.CancelFunc, run st
 		cancel()
 		s.mu.Lock()
 		delete(s.running, run.ID)
+		delete(s.live, run.ID)
 		s.mu.Unlock()
 		now := time.Now()
 		s.st.DB.Model(&store.BatchRun{}).Where("id = ?", run.ID).Update("finished_at", &now)
@@ -217,10 +231,11 @@ func (s *Service) execute(ctx context.Context, cancel context.CancelFunc, run st
 
 // output 收集一个节点的输出：保存前 1 MB，并每 200 ms 推送一次新增部分。
 type output struct {
-	mu      sync.Mutex
-	all     []byte
-	pending []byte
-	cut     bool
+	mu   sync.Mutex
+	all  []byte
+	sent int // 已推送的字节数
+	seq  int // 已推送的片段数
+	cut  bool
 }
 
 func (o *output) Write(p []byte) (int, error) {
@@ -232,19 +247,30 @@ func (o *output) Write(p []byte) (int, error) {
 			chunk, o.cut = chunk[:room], true
 		}
 		o.all = append(o.all, chunk...)
-		o.pending = append(o.pending, chunk...)
 	} else {
 		o.cut = true
 	}
 	return len(p), nil
 }
 
-func (o *output) take() string {
+// take 取出还没推送的部分和它的序号。
+func (o *output) take() (string, int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	s := string(o.pending)
-	o.pending = o.pending[:0]
-	return s
+	if o.sent == len(o.all) {
+		return "", o.seq
+	}
+	s := string(o.all[o.sent:])
+	o.sent = len(o.all)
+	o.seq++
+	return s, o.seq
+}
+
+// snapshot 返回已推送的输出和片段数。
+func (o *output) snapshot() (string, int) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return string(o.all[:o.sent]), o.seq
 }
 
 func (o *output) text() string {
@@ -267,6 +293,11 @@ func (s *Service) runNode(ctx context.Context, run store.BatchRun, id string) {
 		return
 	}
 	out := &output{}
+	s.mu.Lock()
+	if m := s.live[run.ID]; m != nil {
+		m[id] = out
+	}
+	s.mu.Unlock()
 	tctx, cancel := context.WithTimeout(ctx, time.Duration(run.Timeout)*time.Second)
 	defer cancel()
 	stopPush := make(chan struct{})
@@ -280,8 +311,8 @@ func (s *Service) runNode(ctx context.Context, run store.BatchRun, id string) {
 			case <-stopPush:
 				return
 			case <-t.C:
-				if chunk := out.take(); chunk != "" {
-					s.publish(Event{RunID: run.ID, NodeID: id, Output: chunk})
+				if chunk, seq := out.take(); chunk != "" {
+					s.publish(Event{RunID: run.ID, NodeID: id, Output: chunk, Seq: seq})
 				}
 			}
 		}
@@ -289,8 +320,8 @@ func (s *Service) runNode(ctx context.Context, run store.BatchRun, id string) {
 	code, err := n.RunScript(tctx, run.Command, out)
 	close(stopPush)
 	<-pushed
-	if chunk := out.take(); chunk != "" {
-		s.publish(Event{RunID: run.ID, NodeID: id, Output: chunk})
+	if chunk, seq := out.take(); chunk != "" {
+		s.publish(Event{RunID: run.ID, NodeID: id, Output: chunk, Seq: seq})
 	}
 	dur := time.Since(start).Milliseconds()
 	switch {

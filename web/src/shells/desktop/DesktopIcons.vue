@@ -276,16 +276,17 @@ async function onDrop(e: DragEvent, target?: Icon) {
   const keys: string[] = internal ? JSON.parse(internal) : []
   const moving = filesData ? (JSON.parse(filesData) as { node: string; paths: string[] }) : null
   if (target?.key === 'sys:trash' && moving) {
-    ops.remove(moving.paths.map((p) => ({ path: p }) as FileEntry))
+    // 桌面回收站只收本机的文件
+    if (moving.node === 'local') ops.remove(moving.paths.map((p) => ({ path: p }) as FileEntry))
     return
   }
   if (target?.entry?.isDir && moving && !moving.paths.includes(target.entry.path)) {
-    ops.transfer(moving.paths, target.entry.path, e.ctrlKey ? 'copy' : 'move')
+    ops.transfer(moving.paths, target.entry.path, e.ctrlKey || moving.node !== 'local' ? 'copy' : 'move', moving.node)
     return
   }
   if (moving && !internal) {
-    // 从资源管理器拖到桌面：移动（按住 Ctrl 复制）
-    ops.transfer(moving.paths, dir.value, e.ctrlKey ? 'copy' : 'move')
+    // 从资源管理器拖到桌面：同一节点移动（按住 Ctrl 复制），从远程服务器拖来默认复制
+    ops.transfer(moving.paths, dir.value, e.ctrlKey || moving.node !== 'local' ? 'copy' : 'move', moving.node)
     return
   }
   // 桌面内排序：把拖动的图标放到目标图标之前

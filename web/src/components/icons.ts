@@ -74,6 +74,28 @@ export const appIcons: Record<string, string> = {
     `${g('tkB', '#4f8cff', '#2b5dd8')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#tkB)"/>` +
     `<path d="M12 17l3 3 5-6M12 29l3 3 5-6" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
     `<path d="M24 17h12M24 29h12" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>`,
+  servers:
+    `${g('srB', '#5c6bc0', '#3949ab')}<rect x="7" y="5" width="34" height="11" rx="3" fill="url(#srB)"/>` +
+    `<rect x="7" y="18.5" width="34" height="11" rx="3" fill="url(#srB)"/><rect x="7" y="32" width="34" height="11" rx="3" fill="url(#srB)"/>` +
+    `<path d="M12 10.5h12M12 24h12M12 37.5h12" stroke="#c5cae9" stroke-width="2" stroke-linecap="round"/>` +
+    `<circle cx="35" cy="10.5" r="2" fill="#69f0ae"/><circle cx="35" cy="24" r="2" fill="#69f0ae"/><circle cx="35" cy="37.5" r="2" fill="#ffd740"/>`,
+  server:
+    `${g('sv1', '#78909c', '#455a64')}<rect x="8" y="6" width="32" height="36" rx="4" fill="url(#sv1)"/>` +
+    `<rect x="12" y="11" width="24" height="6" rx="1.5" fill="#cfd8dc"/><rect x="12" y="21" width="24" height="6" rx="1.5" fill="#cfd8dc"/>` +
+    `<circle cx="16" cy="35" r="2.2" fill="#69f0ae"/><path d="M22 35h10" stroke="#cfd8dc" stroke-width="2" stroke-linecap="round"/>`,
+  traffic:
+    `${g('tfB', '#26a69a', '#00796b')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#tfB)"/>` +
+    `<path d="M17 34V14M11 20l6-6 6 6" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `<path d="M31 14v20M25 28l6 6 6-6" stroke="#b2dfdb" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+  batch:
+    `${g('btB', '#3d3d3d', '#1e1e1e')}<rect x="12" y="4" width="32" height="24" rx="4" fill="#616161"/>` +
+    `<rect x="8" y="10" width="32" height="24" rx="4" fill="#424242"/><rect x="4" y="16" width="32" height="26" rx="4" fill="url(#btB)"/>` +
+    `<path d="M10 25l5 4-5 4" stroke="#4fc3f7" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `<path d="M18 35h10" stroke="#d4d4d4" stroke-width="2.6" stroke-linecap="round"/>`,
+  probes:
+    `${g('pbB', '#ef5350', '#c62828')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#pbB)"/>` +
+    `<path d="M24 36s-11-6.5-11-14a6 6 0 0 1 11-3.3A6 6 0 0 1 35 22c0 7.5-11 14-11 14z" fill="#fff" opacity=".95"/>` +
+    `<path d="M14 24h6l2-4 3 7 2-3h7" stroke="#e53935" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
 }
 
 export const fileIcons: Record<string, string> = {

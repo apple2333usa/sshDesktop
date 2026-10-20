@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 终端：多标签、分屏（每个标签最多 4 个面板）、同步输入、常用命令片段。
 // 会话在服务端独立存在，刷新页面后按保存的会话 ID 自动接回。
+// 每个窗格可以连到不同的服务器（窗格标识为“节点:会话 ID”），同步输入因此可以同时发给多台服务器。
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NButton, NDropdown, NTooltip, useMessage, type DropdownOption } from 'naive-ui'
@@ -8,11 +9,13 @@ import { api } from '@/api/http'
 import type { TerminalSession } from '@/api/types'
 import { useAppHost } from '@/apps/host'
 import { usePrefs } from '@/stores/prefs'
+import { useNodes } from '@/stores/nodes'
 import { errorText } from '@/i18n'
 import TermPane from './TermPane.vue'
 
 interface Tab {
   id: number
+  /** 窗格标识：节点:会话 ID（旧版本保存的只有会话 ID，属于窗口的节点） */
   panes: string[]
   layout: 'h' | 'v'
   focus: number
@@ -22,8 +25,15 @@ const host = useAppHost()
 const { t } = useI18n()
 const message = useMessage()
 const prefs = usePrefs()
+const nodes = useNodes()
+// 窗口的默认节点：新标签页和“接回会话”使用它
 const node = (host.props.node as string) || 'local'
-const base = `/nodes/${node}/terminals`
+const base = (n: string) => `/nodes/${n}/terminals`
+const keyOf = (n: string, sid: string) => `${n}:${sid}`
+function parse(k: string): { node: string; sid: string } {
+  const i = k.indexOf(':')
+  return i < 0 ? { node, sid: k } : { node: k.slice(0, i), sid: k.slice(i + 1) }
+}
 
 const tabs = ref<Tab[]>([])
 const activeTab = ref(0)
@@ -45,31 +55,32 @@ function persist() {
 }
 watch([tabs, activeTab], persist, { deep: true })
 
-async function createSession(dir?: string): Promise<string | null> {
+async function createSession(dir?: string, n = node): Promise<string | null> {
   try {
-    const s = await api.post<TerminalSession>(base, { cols: 120, rows: 32, dir: dir ?? '' })
-    return s.id
+    const s = await api.post<TerminalSession>(base(n), { cols: 120, rows: 32, dir: dir ?? '' })
+    return keyOf(n, s.id)
   } catch (e) {
     message.error(errorText(e))
     return null
   }
 }
 
-async function newTab(dir?: string, sid?: string) {
-  const id = sid ?? (await createSession(dir))
+async function newTab(dir?: string, key?: string, n = node) {
+  const id = key ?? (await createSession(dir, n))
   if (!id) return
   tabs.value.push({ id: ++seq, panes: [id], layout: 'h', focus: 0 })
   activeTab.value = tabs.value.length - 1
 }
 
-async function split(layout: 'h' | 'v') {
+async function split(layout: 'h' | 'v', n?: string) {
   const tab = current.value
-  if (!tab) return newTab()
+  if (!tab) return newTab(undefined, undefined, n)
   if (tab.panes.length >= 4) {
     message.info(t('terminal.maxPanes'))
     return
   }
-  const id = await createSession()
+  // 默认拆分到当前窗格所在的节点
+  const id = await createSession(undefined, n ?? parse(tab.panes[tab.focus]).node)
   if (!id) return
   tab.layout = layout
   tab.panes.push(id)
@@ -94,9 +105,10 @@ function removePane(sid: string) {
   if (!tabs.value.length) host.close()
 }
 
-async function killSession(sid: string) {
+async function killSession(key: string) {
+  const { node: n, sid } = parse(key)
   try {
-    await api.del(`${base}/${sid}`)
+    await api.del(`${base(n)}/${sid}`)
   } catch {
     /* 会话可能已结束 */
   }
@@ -139,6 +151,9 @@ function runSnippet(cmd: string) {
   nextTick(() => paneRefs.get(focusedSid() ?? '')?.focus())
 }
 
+// 标签页里用到的远程节点（显示彩色圆点）
+const tabNodes = (tab: Tab) => [...new Set(tab.panes.map((k) => parse(k).node))].filter((n) => n !== 'local')
+const multiNode = (tab: Tab) => new Set(tab.panes.map((k) => parse(k).node)).size > 1
 const tabTitle = (tab: Tab, i: number) => titles[tab.panes[tab.focus]] || `${t('apps.terminal')} ${i + 1}`
 
 watch(
@@ -150,8 +165,8 @@ watch(
 /* ---------- 菜单 ---------- */
 async function loadOthers() {
   try {
-    const list = await api.get<TerminalSession[]>(base)
-    const mine = new Set(tabs.value.flatMap((x) => x.panes))
+    const list = await api.get<TerminalSession[]>(base(node))
+    const mine = new Set(tabs.value.flatMap((x) => x.panes.map((k) => parse(k).sid)))
     others.value = list.filter((s) => !mine.has(s.id) && !s.exited)
   } catch {
     others.value = []
@@ -164,6 +179,13 @@ const addOptions = computed<DropdownOption[]>(() => {
     { key: 'splitH', label: t('terminal.splitRight') },
     { key: 'splitV', label: t('terminal.splitDown') },
   ]
+  const online = nodes.list.filter((n) => n.kind === 'local' || n.status.state === 'online')
+  if (online.length > 1) {
+    const sub = (prefix: string) => online.map((n) => ({ key: `${prefix}:${n.id}`, label: n.name }))
+    opts.push({ type: 'divider', key: 'dn' })
+    opts.push({ key: 'newOn', label: t('terminal.newTabOn'), children: sub('newOn') })
+    opts.push({ key: 'splitOn', label: t('terminal.paneOn'), children: sub('splitOn') })
+  }
   if (others.value.length) {
     opts.push({ type: 'divider', key: 'd' })
     opts.push({
@@ -182,7 +204,9 @@ function onAdd(key: string) {
   if (key === 'new') newTab()
   else if (key === 'splitH') split('h')
   else if (key === 'splitV') split('v')
-  else if (key.startsWith('attach:')) newTab(undefined, key.slice(7))
+  else if (key.startsWith('attach:')) newTab(undefined, keyOf(node, key.slice(7)))
+  else if (key.startsWith('newOn:')) newTab(undefined, undefined, key.slice(6))
+  else if (key.startsWith('splitOn:')) split('h', key.slice(8))
 }
 
 const snippetOptions = computed<DropdownOption[]>(() => {
@@ -225,10 +249,20 @@ onMounted(async () => {
   const saved = host.props.tabs as { panes: string[]; layout: 'h' | 'v'; focus: number }[] | undefined
   if (saved?.length) {
     try {
-      const list = await api.get<TerminalSession[]>(base)
-      const alive = new Set(list.filter((s) => !s.exited).map((s) => s.id))
-      for (const s of list) titles[s.id] = s.title === '终端' ? '' : s.title
-      tabs.value = saved
+      // 统一成“节点:会话 ID”，再按节点查询哪些会话还在
+      const norm = saved.map((x) => ({ ...x, panes: x.panes.map((k) => keyOf(parse(k).node, parse(k).sid)) }))
+      const used = [...new Set(norm.flatMap((x) => x.panes.map((k) => parse(k).node)))]
+      const alive = new Set<string>()
+      await Promise.all(
+        used.map(async (n) => {
+          const list = await api.get<TerminalSession[]>(base(n)).catch(() => [] as TerminalSession[])
+          for (const s of list) {
+            if (!s.exited) alive.add(keyOf(n, s.id))
+            titles[keyOf(n, s.id)] = s.title === '终端' ? '' : s.title
+          }
+        }),
+      )
+      tabs.value = norm
         .map((x) => ({ id: ++seq, panes: x.panes.filter((p) => alive.has(p)), layout: x.layout, focus: x.focus ?? 0 }))
         .filter((x) => x.panes.length)
         .map((x) => ({ ...x, focus: Math.min(x.focus, x.panes.length - 1) }))
@@ -264,6 +298,7 @@ const gridStyle = computed(() => {
           @click="activeTab = i"
           @mousedown.middle.prevent="closeTab(i)"
         >
+          <i v-for="n in tabNodes(tab)" :key="n" class="tnode" :style="{ background: nodes.color(n) }" :title="nodes.label(n)" />
           <span class="sd-ellipsis">{{ tabTitle(tab, i) }}</span>
           <span v-if="tab.panes.length > 1" class="count">{{ tab.panes.length }}</span>
           <span class="x" :title="t('common.close')" @click.stop="closeTab(i)">×</span>
@@ -301,8 +336,8 @@ const gridStyle = computed(() => {
         <div v-for="(sid, pi) in tab.panes" :key="sid" class="cell" :class="{ focused: tab.panes.length > 1 && pi === tab.focus }">
           <TermPane
             :ref="(el) => setRef(sid, el)"
-            :node="node"
-            :sid="sid"
+            :node="parse(sid).node"
+            :sid="parse(sid).sid"
             :font-size="prefs.p.terminal.fontSize"
             :scheme="prefs.p.terminal.scheme"
             :sync="sync"
@@ -314,6 +349,7 @@ const gridStyle = computed(() => {
             @exit="removePane(sid)"
             @gone="removePane(sid)"
           />
+          <span v-if="multiNode(tab)" class="pane-node" :style="{ background: nodes.color(parse(sid).node) }">{{ nodes.name(parse(sid).node) }}</span>
           <span v-if="tab.panes.length > 1" class="pane-x" :title="t('terminal.closePane')" @click="closePane(sid)">×</span>
         </div>
       </div>
@@ -461,6 +497,23 @@ const gridStyle = computed(() => {
 }
 .cell:hover .pane-x {
   opacity: 1;
+}
+.tnode {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.pane-node {
+  position: absolute;
+  top: 4px;
+  right: 40px;
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 8px;
+  color: #fff;
+  opacity: 0.85;
+  pointer-events: none;
 }
 @media (max-width: 640px) {
   .actions :deep(.n-button):not([data-testid]) {

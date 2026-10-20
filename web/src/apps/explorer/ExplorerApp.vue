@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 文件资源管理器：导航窗格 + 地址栏 + 工具栏 + 文件列表，风格参考 Windows 11。
+// “网络”下每台远程服务器是一个网络位置；窗口可以在服务器之间切换，跨服务器复制 / 拖放由面板中转。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NButton, NDropdown, NInput, NTooltip, useMessage, type DropdownOption } from 'naive-ui'
@@ -10,17 +11,20 @@ import { usePrefs } from '@/stores/prefs'
 import { useSession } from '@/stores/session'
 import { useNotify } from '@/stores/notify'
 import { useFileClipboard } from '@/stores/clipboard'
+import { useNodes } from '@/stores/nodes'
 import { errorText, formatBytes } from '@/i18n'
 import { fileKind } from '@/components/icons'
 import SdIcon from '@/components/SdIcon.vue'
 import FileList, { type SortKey } from './FileList.vue'
 import ComputerView from './ComputerView.vue'
 import TrashView from './TrashView.vue'
+import NetworkView from './NetworkView.vue'
 import { collectDropped, join, parentOf, useFileOps } from './fileops'
 import { useFileOpener } from './opener'
 
 const COMPUTER = 'computer:'
 const TRASH = 'trash:'
+const NETWORK = 'network:'
 const FILES_DND = 'application/x-sshdesktop-files'
 
 const host = useAppHost()
@@ -30,11 +34,19 @@ const prefs = usePrefs()
 const session = useSession()
 const notify = useNotify()
 const clip = useFileClipboard()
+const nodes = useNodes()
 
-const node = (host.props.node as string) || 'local'
-const path = ref<string>((host.props.path as string) || '/root')
-const back = ref<string[]>([])
-const forward = ref<string[]>([])
+interface Loc {
+  node: string
+  path: string
+}
+const node = ref<string>((host.props.node as string) || 'local')
+const path = ref<string>((host.props.path as string) || (node.value === 'local' ? '/root' : COMPUTER))
+const back = ref<Loc[]>([])
+const forward = ref<Loc[]>([])
+const remote = computed(() => node.value !== 'local')
+// 各节点的家目录（地址栏输入 ~ 时使用），从“此电脑”的接口取得
+const homes = ref<Record<string, string>>({ local: '/root' })
 const entries = ref<FileEntry[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -51,7 +63,7 @@ const root = ref<HTMLElement | null>(null)
 const trashView = ref<InstanceType<typeof TrashView> | null>(null)
 
 const canManage = computed(() => session.has('files:manage'))
-const special = computed(() => path.value === COMPUTER || path.value === TRASH)
+const special = computed(() => path.value === COMPUTER || path.value === TRASH || path.value === NETWORK)
 const view = computed({
   get: () => prefs.p.explorer.view,
   set: (v) => (prefs.p.explorer.view = v),
@@ -68,7 +80,7 @@ async function load() {
   const seq = ++loadSeq
   loading.value = true
   try {
-    const r = await filesApi.list(node, path.value)
+    const r = await filesApi.list(node.value, path.value)
     if (seq !== loadSeq) return
     entries.value = r.entries
     error.value = ''
@@ -83,15 +95,14 @@ async function load() {
   }
 }
 
-function navigate(p: string, record = true) {
+function navigate(p: string, n = node.value, record = true) {
   if (!p) return
-  if (!special.value || p !== path.value) {
-    if (record && p !== path.value) {
-      back.value.push(path.value)
-      if (back.value.length > 50) back.value.shift()
-      forward.value = []
-    }
+  if (record && (p !== path.value || n !== node.value)) {
+    back.value.push({ node: node.value, path: path.value })
+    if (back.value.length > 50) back.value.shift()
+    forward.value = []
   }
+  node.value = n
   path.value = p
   filter.value = ''
   searchResults.value = null
@@ -101,32 +112,44 @@ function navigate(p: string, record = true) {
 }
 
 function goBack() {
-  const p = back.value.pop()
-  if (p === undefined) return
-  forward.value.push(path.value)
-  navigate(p, false)
+  const l = back.value.pop()
+  if (!l) return
+  forward.value.push({ node: node.value, path: path.value })
+  navigate(l.path, l.node, false)
 }
 function goForward() {
-  const p = forward.value.pop()
-  if (p === undefined) return
-  back.value.push(path.value)
-  navigate(p, false)
+  const l = forward.value.pop()
+  if (!l) return
+  back.value.push({ node: node.value, path: path.value })
+  navigate(l.path, l.node, false)
 }
 function goUp() {
+  if (path.value === COMPUTER && remote.value) return navigate(NETWORK, 'local')
   if (special.value) return
   if (path.value === '/') navigate(COMPUTER)
   else navigate(parentOf(path.value))
 }
 
+function titleOf(p: string) {
+  if (p === NETWORK) return t('explorer.network')
+  if (p === COMPUTER) return remote.value ? nodes.name(node.value) : t('explorer.thisPC')
+  if (p === TRASH) return t('explorer.trash')
+  return p === '/' ? '/' : p.slice(p.lastIndexOf('/') + 1)
+}
+
 watch(
-  path,
-  (p) => {
-    host.setState({ path: p, node })
-    host.setTitle(p === COMPUTER ? t('explorer.thisPC') : p === TRASH ? t('explorer.trash') : p === '/' ? '/' : p.slice(p.lastIndexOf('/') + 1))
+  [node, path],
+  ([n, p]) => {
+    host.setState({ path: p, node: n })
+    host.setTitle(titleOf(p))
     load()
   },
   { immediate: true },
 )
+
+function onHome(h: string) {
+  if (h) homes.value[node.value] = h
+}
 
 // 后台任务（粘贴、压缩、解压等）完成后刷新当前目录
 watch(
@@ -136,13 +159,18 @@ watch(
 
 /* ---------- 地址栏 ---------- */
 const crumbs = computed(() => {
-  if (path.value === COMPUTER) return [{ label: t('explorer.thisPC'), path: COMPUTER }]
-  if (path.value === TRASH) return [{ label: t('explorer.trash'), path: TRASH }]
-  const out = [{ label: t('explorer.thisPC'), path: COMPUTER }, { label: '/', path: '/' }]
+  const n = node.value
+  const rootCrumbs = remote.value
+    ? [{ label: t('explorer.network'), path: NETWORK, node: 'local' }, { label: nodes.name(n), path: COMPUTER, node: n }]
+    : [{ label: t('explorer.thisPC'), path: COMPUTER, node: n }]
+  if (path.value === NETWORK) return [{ label: t('explorer.network'), path: NETWORK, node: 'local' }]
+  if (path.value === COMPUTER) return rootCrumbs
+  if (path.value === TRASH) return [...(remote.value ? rootCrumbs : []), { label: t('explorer.trash'), path: TRASH, node: n }]
+  const out = [...rootCrumbs, { label: '/', path: '/', node: n }]
   let cur = ''
   for (const part of path.value.split('/').filter(Boolean)) {
     cur += '/' + part
-    out.push({ label: part, path: cur })
+    out.push({ label: part, path: cur, node: n })
   }
   return out
 })
@@ -157,7 +185,7 @@ function commitAddress() {
   let p = addressText.value.trim()
   editingAddress.value = false
   if (!p) return
-  if (p === '~') p = '/root'
+  if (p === '~' || p.startsWith('~/')) p = (homes.value[node.value] || '/root') + p.slice(1)
   if (!p.startsWith('/')) p = join(special.value ? '/' : path.value, p)
   p = p.replace(/\/+$/, '') || '/'
   navigate(p)
@@ -172,7 +200,7 @@ async function deepSearch() {
   searchCtl = new AbortController()
   searching.value = true
   try {
-    const r = await filesApi.search(node, path.value, q, searchCtl.signal)
+    const r = await filesApi.search(node.value, path.value, q, searchCtl.signal)
     searchResults.value = r.entries
     if (r.partial) message.info(t('explorer.searchPartial'))
   } catch (e) {
@@ -367,13 +395,13 @@ function act(key: string) {
         if (one) opener.open(one, key === 'openEditor' ? 'editor' : 'viewer')
         break
       case 'openNew':
-        if (one) host.openApp('explorer', { path: one.path, node })
+        if (one) host.openApp('explorer', { path: one.path, node: node.value })
         break
       case 'extract':
         if (one) opener.extract(one).then(load)
         break
       case 'terminalHere':
-        host.openApp('terminal', { cwd: one?.isDir ? one.path : special.value ? '/root' : path.value })
+        host.openApp('terminal', { node: node.value, cwd: one?.isDir ? one.path : special.value ? homes.value[node.value] || '' : path.value })
         break
       case 'cut':
         ops.cut(sel)
@@ -407,7 +435,7 @@ function act(key: string) {
         break
       case 'properties':
         if (sel.length) ops.properties(sel)
-        else filesApi.stat(node, path.value).then((e) => ops.properties([e]), (e) => message.error(errorText(e)))
+        else filesApi.stat(node.value, path.value).then((e) => ops.properties([e]), (e) => message.error(errorText(e)))
         break
       case 'refresh':
         load()
@@ -468,10 +496,10 @@ function onDragStart(ev: DragEvent, e: FileEntry) {
   if (!selected.value.has(e.path)) selected.value = new Set([e.path])
   const paths = selectedEntries.value.map((x) => x.path)
   const dt = ev.dataTransfer!
-  dt.setData(FILES_DND, JSON.stringify({ node, paths }))
+  dt.setData(FILES_DND, JSON.stringify({ node: node.value, paths }))
   dt.setData('text/plain', paths.join('\n'))
   if (!e.isDir && paths.length === 1) {
-    dt.setData('DownloadURL', `application/octet-stream:${e.name}:${location.origin}${filesApi.downloadURL(node, [e.path])}`)
+    dt.setData('DownloadURL', `application/octet-stream:${e.name}:${location.origin}${filesApi.downloadURL(node.value, [e.path])}`)
   }
   dt.effectAllowed = 'copyMove'
 }
@@ -490,13 +518,15 @@ async function dropTo(ev: DragEvent, dest: string | 'trash') {
   const raw = dt.getData(FILES_DND)
   if (raw) {
     const data = JSON.parse(raw) as { node: string; paths: string[] }
+    const same = data.node === node.value
     if (dest === 'trash') {
-      ops.remove(data.paths.map((p) => ({ path: p }) as FileEntry))
+      if (same) ops.remove(data.paths.map((p) => ({ path: p }) as FileEntry))
       return
     }
-    const sources = data.paths.filter((p) => p !== dest && parentOf(p) !== dest)
+    const sources = same ? data.paths.filter((p) => p !== dest && parentOf(p) !== dest) : data.paths
     if (!sources.length) return
-    ops.transfer(sources, dest, ev.ctrlKey ? 'copy' : 'move')
+    // 与 Windows 跨盘拖放一致：跨服务器默认复制，同一服务器默认移动；按住 Ctrl 复制
+    ops.transfer(sources, dest, ev.ctrlKey || !same ? 'copy' : 'move', data.node)
     return
   }
   if (dest === 'trash') return
@@ -553,6 +583,7 @@ function moveSelection(delta: number, extend: boolean) {
 onMounted(() => root.value?.focus())
 
 /* ---------- 导航窗格 ---------- */
+// 快速访问固定指向本机
 const quick = computed(() => [
   { label: t('explorer.desktop'), path: prefs.p.desktopDir, icon: 'folder' },
   { label: 'root', path: '/root', icon: 'folder' },
@@ -563,7 +594,7 @@ const quick = computed(() => [
 ])
 
 const status = computed(() => {
-  if (path.value === COMPUTER || path.value === TRASH) return ''
+  if (special.value) return ''
   const n = shown.value.length
   const sel = selectedEntries.value
   let s = t('explorer.itemsN', { n })
@@ -607,7 +638,7 @@ onUnmounted(() => searchCtl?.abort())
             v-for="(c, i) in crumbs"
             :key="c.path"
             class="crumb"
-            @click.stop="navigate(c.path)"
+            @click.stop="navigate(c.path, c.node)"
             @dragover.prevent="dropTarget = c.path"
             @drop.prevent.stop="!c.path.endsWith(':') && dropTo($event, c.path)"
           >
@@ -667,24 +698,37 @@ onUnmounted(() => searchCtl?.abort())
           v-for="q in quick"
           :key="q.path"
           class="pane-item"
-          :class="{ active: path === q.path, drop: dropTarget === 'q:' + q.path }"
-          @click="navigate(q.path)"
+          :class="{ active: !remote && path === q.path, drop: dropTarget === 'q:' + q.path }"
+          @click="navigate(q.path, 'local')"
           @dragover.prevent="dropTarget = 'q:' + q.path"
           @dragleave="dropTarget = null"
-          @drop.prevent="dropTo($event, q.path)"
+          @drop.prevent="!remote && dropTo($event, q.path)"
         >
           <SdIcon :name="q.icon" :size="18" /><span class="sd-ellipsis">{{ q.label }}</span>
         </div>
         <div class="pane-sep" />
-        <div class="pane-item" :class="{ active: path === COMPUTER }" data-testid="nav-computer" @click="navigate(COMPUTER)">
+        <div class="pane-item" :class="{ active: !remote && path === COMPUTER }" data-testid="nav-computer" @click="navigate(COMPUTER, 'local')">
           <SdIcon name="thispc" :size="18" /><span>{{ t('explorer.thisPC') }}</span>
         </div>
-        <div class="pane-item disabled" :title="t('explorer.networkSoon')">
+        <div class="pane-item" :class="{ active: path === NETWORK }" data-testid="nav-network" @click="navigate(NETWORK, 'local')">
           <SdIcon name="network" :size="18" /><span>{{ t('explorer.network') }}</span>
+        </div>
+        <div
+          v-for="n in nodes.remote"
+          :key="n.id"
+          class="pane-item sub"
+          :class="{ active: node === n.id && path === COMPUTER, off: n.status.state !== 'online' }"
+          :title="nodes.label(n.id)"
+          :data-testid="'nav-node-' + n.id"
+          @click="navigate(COMPUTER, n.id)"
+        >
+          <SdIcon name="server" :size="18" /><span class="sd-ellipsis">{{ n.name }}</span>
+          <i class="state" :class="n.status.state" />
         </div>
         <div
           class="pane-item"
           :class="{ active: path === TRASH, drop: dropTarget === 'trash' }"
+          :title="remote ? nodes.label(node) : ''"
           data-testid="nav-trash"
           @click="navigate(TRASH)"
           @dragover.prevent="dropTarget = 'trash'"
@@ -697,8 +741,9 @@ onUnmounted(() => searchCtl?.abort())
 
       <!-- 内容 -->
       <div class="content">
-        <ComputerView v-if="path === COMPUTER" :node="node" @open="navigate" />
-        <TrashView v-else-if="path === TRASH" ref="trashView" :node="node" />
+        <NetworkView v-if="path === NETWORK" @open="(id: string) => navigate(COMPUTER, id)" />
+        <ComputerView v-else-if="path === COMPUTER" :key="node" :node="node" @open="(p: string) => navigate(p)" @home="onHome" />
+        <TrashView v-else-if="path === TRASH" ref="trashView" :key="node" :node="node" />
         <div v-else-if="error" class="error">
           <div>{{ error }}</div>
           <NButton size="small" @click="load">{{ t('explorer.retry') }}</NButton>
@@ -727,6 +772,7 @@ onUnmounted(() => searchCtl?.abort())
     <div class="statusbar sd-muted">
       <span>{{ status }}</span>
       <span v-if="searchResults" class="sd-muted">{{ t('explorer.searchResults', { q: filter }) }}</span>
+      <span v-if="remote" class="node" :style="{ color: nodes.color(node) }">● {{ nodes.label(node) }}</span>
       <span v-if="!canManage" class="ro">{{ t('explorer.readOnly') }}</span>
     </div>
 
@@ -852,8 +898,29 @@ onUnmounted(() => searchCtl?.abort())
   background: var(--sd-accent-soft);
   outline: 1px solid var(--sd-accent);
 }
-.pane-item.disabled {
-  opacity: 0.5;
+.pane-item.sub {
+  padding-left: 26px;
+}
+.pane-item.off {
+  opacity: 0.6;
+}
+.state {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-left: auto;
+  flex: none;
+  background: #8a8a8a;
+}
+.state.online {
+  background: #16a34a;
+}
+.state.connecting {
+  background: #d97706;
+}
+.state.hostkey-mismatch,
+.state.auth-failed {
+  background: #dc2626;
 }
 .pane-sep {
   height: 1px;
@@ -889,6 +956,9 @@ onUnmounted(() => searchCtl?.abort())
   padding: 0 12px;
   font-size: 12px;
   border-top: 1px solid var(--sd-border);
+}
+.node {
+  margin-left: auto;
 }
 .ro {
   margin-left: auto;

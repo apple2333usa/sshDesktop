@@ -166,6 +166,11 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF
+# 先装了独立 agent 的服务器：停用它，由面板在同一个 socket 上提供 agent 接口
+if systemctl list-unit-files sshdesktop-agent.service >/dev/null 2>&1 && [ -f /etc/systemd/system/sshdesktop-agent.service ]; then
+  yellow "检测到独立的 sshdesktop-agent，已停用（面板自带同样的 agent 接口）"
+  systemctl disable --now sshdesktop-agent >/dev/null 2>&1 || true
+fi
 systemctl daemon-reload
 systemctl enable --now sshdesktop >/dev/null 2>&1 || die "启动失败，请查看：journalctl -u sshdesktop -n 50"
 

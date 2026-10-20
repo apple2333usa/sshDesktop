@@ -1,4 +1,5 @@
 // 双击打开文件：文本类用编辑器，图片 / 视频 / PDF 用查看器，压缩包进入解压对话框，其他类型下载。
+import { toValue, type MaybeRefOrGetter } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import type { FileEntry } from '@/api/types'
@@ -10,13 +11,14 @@ import { useSession } from '@/stores/session'
 import { errorText } from '@/i18n'
 import { askExtract } from './dialogs'
 
-export function useFileOpener(node: string, openApp: (id: string, props?: Record<string, any>) => void) {
+export function useFileOpener(nodeRef: MaybeRefOrGetter<string>, openApp: (id: string, props?: Record<string, any>) => void) {
   const message = useMessage()
   const notify = useNotify()
   const session = useSession()
   const { t } = useI18n()
 
   async function extract(e: FileEntry) {
+    const node = toValue(nodeRef)
     if (!session.has('files:manage')) {
       message.warning(t('explorer.noManagePerm'))
       return
@@ -32,6 +34,7 @@ export function useFileOpener(node: string, openApp: (id: string, props?: Record
   }
 
   function open(e: FileEntry, as?: 'editor' | 'viewer') {
+    const node = toValue(nodeRef)
     if (e.isDir) {
       openApp('explorer', { path: e.path, node })
       return

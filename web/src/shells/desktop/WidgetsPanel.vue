@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// 小组件面板：本机 CPU、内存、磁盘、网速、运行时间。
+// 小组件面板：本机 CPU、内存、磁盘、网速、运行时间，以及各服务器的在线状态。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NProgress } from 'naive-ui'
 import { realtime } from '@/api/realtime'
 import { useHost } from '@/stores/host'
 import { useSession } from '@/stores/session'
+import { useNodes } from '@/stores/nodes'
 import { formatBytes, formatDuration, formatRate } from '@/i18n'
 import type { Sample } from '@/api/types'
 
@@ -13,6 +14,7 @@ const emit = defineEmits<{ open: [string] }>()
 const { t } = useI18n()
 const host = useHost()
 const session = useSession()
+const nodes = useNodes()
 const s = ref<Sample | null>(null)
 let unsub: (() => void) | null = null
 
@@ -64,6 +66,14 @@ const status = (v: number) => (v > 90 ? 'error' : v > 75 ? 'warning' : 'success'
       </div>
     </template>
     <div v-else class="card sd-muted">{{ t('common.loading') }}</div>
+    <div v-if="nodes.remote.length" class="card wide" data-testid="widget-nodes" @click="emit('open', 'servers')">
+      <div class="k">{{ t('widgets.nodes', { online: nodes.onlineCount, total: nodes.list.length }) }}</div>
+      <div v-for="n in nodes.remote" :key="n.id" class="node">
+        <i class="dot" :class="n.status.state" />
+        <span class="sd-ellipsis">{{ n.name }}</span>
+        <span class="sd-muted small">{{ t('servers.state.' + n.status.state) }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -126,5 +136,33 @@ const status = (v: number) => (v > 90 ? 'error' : v > 75 ? 'warning' : 'success'
   display: flex;
   justify-content: space-between;
   font-family: var(--sd-mono);
+}
+.node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.node .sd-ellipsis {
+  flex: 1;
+  min-width: 0;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: #8a8a8a;
+}
+.dot.online {
+  background: #16a34a;
+}
+.dot.connecting {
+  background: #d97706;
+}
+.dot.hostkey-mismatch,
+.dot.auth-failed {
+  background: #dc2626;
 }
 </style>

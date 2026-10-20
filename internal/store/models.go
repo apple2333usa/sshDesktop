@@ -226,6 +226,8 @@ type BatchResult struct {
 	Output     string `gorm:"type:text" json:"output"`
 	Error      string `json:"error"`
 	DurationMs int64  `json:"durationMs"`
+	// Seq 只用于执行中的查询结果：Output 包含的推送片段数（见 batch.Event）
+	Seq int `gorm:"-" json:"seq,omitempty"`
 }
 
 func allModels() []any {

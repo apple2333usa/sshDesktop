@@ -66,6 +66,7 @@
     - 安装应用后的任务窗口一直显示“进行中”：接口返回的是 `{task, app}`。
     - 镜像仓库限流时安装失败：拉取失败后改为用本机已有的镜像继续启动。
     - 1Panel 的 9 个网站运行环境显示为可以安装：现在标为暂不支持，放到 M4 网站管理中。
+  - CI 中发现：面板不以 root 运行时 Shell 任务进不了工作目录 `/root`、无法启动。现在进不去时改用自己的家目录。
   - 依赖其他应用的 52 个商店应用暂不支持，网站备份和安装后创建反向代理也放到 M4，已记入设计文档第 13 节。
 - 对应文件：`internal/docker/`、`internal/backup/`、`internal/cronexpr/`、`internal/module/docker/`、`internal/module/appstore/`、`internal/module/cron/`、`internal/module/backup/`、`internal/module/nodes/nodes.go`、`internal/module/nodes/agent.go`、`internal/module/terminal/terminal.go`、`internal/node/node.go`、`internal/node/local_pty.go`、`internal/task/task.go`、`internal/store/models.go`、`internal/rbac/rbac.go`、`internal/api/api.go`、`internal/server/server.go`、`internal/server/m3_test.go`、`cmd/sshdesktop/cron.go`、`cmd/sshdesktop/main.go`、`cmd/sshdesktop/upgrade.go`、`go.mod`、`go.sum`、`web/src/apps/docker/`、`web/src/apps/appstore/`、`web/src/apps/cron/`、`web/src/apps/backup/`、`web/src/apps/terminal/TerminalApp.vue`、`web/src/apps/registry.ts`、`web/src/components/TaskLog.vue`、`web/src/components/LogStream.vue`、`web/src/components/icons.ts`、`web/src/api/types.ts`、`web/src/api/http.ts`、`web/src/i18n/zh-CN.ts`、`web/e2e/m3.spec.ts`、`web/e2e/shots.spec.ts`、`VERSION`、`web/package.json`、`web/package-lock.json`、`docs/design.md`、`README.md`、`docs/readme-history/README-v0.2.1-20261020-220400.md`
 - 验证与限制：
@@ -74,4 +75,5 @@
     - S3 目标用 rclone 模拟的 S3 服务测试通过，真实 1Panel 索引（264 个应用、17 个分类，61 个暂不支持）解析通过。
     - 前端类型检查、构建和 vitest 8 项通过。
     - Playwright e2e 通过：桌面 9 项、手机 1 项、M3 新增 4 项（`SD_NO_SYSTEMD=1`）。多服务器用例这次没有跑。
+    - 计划任务测试另以非 root 用户运行通过。
   - 还没有在测试服务器上验证 Docker 一键安装、真实应用安装、S3 / WebDAV 云存储、系统 cron 定时触发和 systemd 下的面板恢复后自动重启。

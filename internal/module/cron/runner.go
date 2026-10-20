@@ -161,9 +161,13 @@ func runShell(ctx context.Context, script string, out io.Writer) (int, error) {
 		shell = "/bin/sh"
 	}
 	cmd := exec.CommandContext(ctx, shell, "-c", script)
+	// 面板以 root 运行时在 /root 下执行；进不去（非 root 运行）时用自己的家目录
 	cmd.Dir = "/root"
-	if _, err := os.Stat(cmd.Dir); err != nil {
+	if syscall.Access(cmd.Dir, 1) != nil {
 		cmd.Dir = "/"
+		if home, err := os.UserHomeDir(); err == nil && syscall.Access(home, 1) == nil {
+			cmd.Dir = home
+		}
 	}
 	cmd.Env = append(os.Environ(), "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME="+cmd.Dir)
 	cmd.Stdout, cmd.Stderr = out, out

@@ -189,6 +189,12 @@ func (a *App) finish() {
 		a.Unsupported = "没有可安装的版本"
 		return
 	}
+	switch a.Type {
+	case "php", "node", "java", "go", "python", "dotnet":
+		// 1Panel 的网站运行环境，需要配合网站目录使用，不能单独安装
+		a.Unsupported = "这是网站的运行环境，会在后续版本的网站管理中提供"
+		return
+	}
 	for _, f := range a.versions[0].Fields {
 		if f.Type == "apps" || f.Type == "service" {
 			a.Unsupported = "需要先安装数据库等依赖应用，暂不支持（数据库管理在后续版本提供）"

@@ -97,7 +97,7 @@ async function submit() {
       for (const f of shown.value) changed[f.envKey] = values.value[f.envKey] ?? ''
       task = await api.put<Task>(`/nodes/local/appstore/installed/${props.installed}/params`, { params: changed, external: external.value })
     } else {
-      task = await api.post<Task>('/nodes/local/appstore/installed', {
+      const r = await api.post<{ task: Task }>('/nodes/local/appstore/installed', {
         source: props.app!.source,
         key: props.app!.key,
         version: version.value,
@@ -105,6 +105,7 @@ async function submit() {
         params: values.value,
         external: external.value,
       })
+      task = r.task
     }
     emit('task', task)
     emit('close')

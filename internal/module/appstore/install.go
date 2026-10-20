@@ -656,7 +656,12 @@ func (s *Service) deploy(ctx context.Context, t *task.Task, a *App, v *Version, 
 	defer out.Flush()
 	t.Log("拉取镜像")
 	if err := docker.Compose(ctx, p, out, "pull"); err != nil {
-		return err
+		if ctx.Err() != nil {
+			return err
+		}
+		// 镜像仓库限流或暂时连不上时，用本机已有的镜像继续；缺少的镜像在启动时会再拉取一次
+		out.Flush()
+		t.Log("拉取镜像失败（%v），尝试使用本机已有的镜像启动", err)
 	}
 	t.Progress(80)
 	t.Log("启动")

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apple2333usa/sshdesktop/internal/store"
-	"github.com/apple2333usa/sshdesktop/internal/vfs"
+	"github.com/apple2333usa/sshdesktop/internal/metric"
+	"github.com/apple2333usa/sshdesktop/internal/mountinfo"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/host"
@@ -31,7 +31,7 @@ type DiskUsage struct {
 
 // Sample 是每秒一次的实时指标。
 type Sample struct {
-	store.Metric
+	metric.Metric
 	Uptime   uint64      `json:"uptime"`
 	CPUCores []float64   `json:"cpuCores"`
 	Disks    []DiskUsage `json:"disks"`
@@ -39,16 +39,16 @@ type Sample struct {
 
 // Info 是主机静态信息。
 type Info struct {
-	Hostname      string `json:"hostname"`
-	OS            string `json:"os"`
-	Platform      string `json:"platform"`
-	PlatformVer   string `json:"platformVersion"`
-	Kernel        string `json:"kernel"`
-	Arch          string `json:"arch"`
-	CPUModel      string `json:"cpuModel"`
-	CPUCores      int    `json:"cpuCores"`
-	CPUThreads    int    `json:"cpuThreads"`
-	BootTime      uint64 `json:"bootTime"`
+	Hostname       string `json:"hostname"`
+	OS             string `json:"os"`
+	Platform       string `json:"platform"`
+	PlatformVer    string `json:"platformVersion"`
+	Kernel         string `json:"kernel"`
+	Arch           string `json:"arch"`
+	CPUModel       string `json:"cpuModel"`
+	CPUCores       int    `json:"cpuCores"`
+	CPUThreads     int    `json:"cpuThreads"`
+	BootTime       uint64 `json:"bootTime"`
 	Virtualization string `json:"virtualization"`
 }
 
@@ -59,18 +59,20 @@ type Collector struct {
 	ring []Sample
 	info Info
 
-	prevCPU   []cpu.TimesStat
-	prevCPUT  cpu.TimesStat
-	prevNet   map[string]net.IOCountersStat
-	prevDisk  map[string]disk.IOCountersStat
-	prevAt    time.Time
-	disks     []DiskUsage
+	prevCPU    []cpu.TimesStat
+	prevCPUT   cpu.TimesStat
+	prevNet    map[string]net.IOCountersStat
+	prevDisk   map[string]disk.IOCountersStat
+	prevAt     time.Time
+	disks      []DiskUsage
 	tcp, procs float64
 
 	// OnSample 在每次采样后调用（用于实时推送）。
 	OnSample func(Sample)
 	// OnMinute 在每分钟结束时调用，参数为该分钟的平均值。
-	OnMinute func(store.Metric)
+	OnMinute func(metric.Metric)
+	// Traffic 不为空时按天累计各网卡流量。
+	Traffic *Traffic
 }
 
 func NewCollector() *Collector {
@@ -132,7 +134,7 @@ func (c *Collector) Latest() (Sample, bool) {
 func (c *Collector) Run(ctx context.Context) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
-	var minute []store.Metric
+	var minute []metric.Metric
 	curMinute := time.Now().Unix() / 60
 	tick := 0
 	for {
@@ -217,10 +219,15 @@ func (c *Collector) sample() *Sample {
 	elapsed := now.Sub(c.prevAt).Seconds()
 	nets, _ := net.IOCounters(true)
 	curNet := map[string]net.IOCountersStat{}
+	counters := map[string][2]uint64{}
 	for _, n := range nets {
 		if countedNIC(n.Name) {
 			curNet[n.Name] = n
+			counters[n.Name] = [2]uint64{n.BytesRecv, n.BytesSent}
 		}
+	}
+	if c.Traffic != nil {
+		c.Traffic.Observe(now, counters)
 	}
 	disks, _ := disk.IOCounters(physicalDisks()...)
 	if c.prevNet != nil && elapsed > 0 {
@@ -266,6 +273,8 @@ func busy(a, b cpu.TimesStat) float64 {
 }
 
 // countedNIC 排除回环和容器虚拟网卡，避免流量重复计算。
+func CountedNIC(name string) bool { return countedNIC(name) }
+
 func countedNIC(name string) bool {
 	for _, p := range []string{"lo", "veth", "docker", "br-", "virbr", "cni", "flannel", "cali", "vxlan", "kube"} {
 		if name == p || strings.HasPrefix(name, p) && p != "lo" {
@@ -293,7 +302,7 @@ func physicalDisks() []string {
 func diskUsages() []DiskUsage {
 	var out []DiskUsage
 	seen := map[string]bool{}
-	for _, m := range vfs.Mounts(false) {
+	for _, m := range mountinfo.Mounts(false) {
 		if m.FSType == "tmpfs" || m.FSType == "overlay" || seen[m.Device] {
 			continue
 		}
@@ -339,8 +348,8 @@ func countProcs() float64 {
 }
 
 // Average 计算一组指标的平均值（容量类取最后一个值）。
-func Average(ms []store.Metric) store.Metric {
-	var a store.Metric
+func Average(ms []metric.Metric) metric.Metric {
+	var a metric.Metric
 	if len(ms) == 0 {
 		return a
 	}

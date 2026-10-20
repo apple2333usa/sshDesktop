@@ -127,7 +127,6 @@ func (s *Service) Login(username, password, ip, ua string, loopback bool) (strin
 	return token, &sess, &u, nil
 }
 
-
 var ErrNoSession = errors.New("未登录或会话已过期")
 
 // Authenticate 根据令牌查找会话，检查空闲超时并刷新最后活动时间。

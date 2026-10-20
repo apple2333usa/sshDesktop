@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 错误码按模块分段：1xxx 通用，2xxx 登录与账号，3xxx 文件，4xxx 终端，5xxx 进程与服务。
+// 错误码按模块分段：1xxx 通用，2xxx 登录与账号，3xxx 文件，4xxx 终端，5xxx 进程与服务，6xxx 节点。
 const (
 	CodeOK              = 0
 	CodeBadRequest      = 1001
@@ -43,6 +43,10 @@ const (
 	CodeSessionGone = 4001
 
 	CodeCommandFailed = 5001
+
+	CodeHostKeyChanged = 6001
+	CodeNodeOffline    = 6002
+	CodeAgentFailed    = 6003
 )
 
 type Error struct {
@@ -141,7 +145,7 @@ func SetIP(c *gin.Context, ip string) { c.Set(ctxIP, ip) }
 func IP(c *gin.Context) string        { return c.GetString(ctxIP) }
 
 // Target 记录本次操作的对象（文件路径、进程号等），写入审计日志。
-func Target(c *gin.Context, t string) { c.Set(ctxAuditTgt, t) }
+func Target(c *gin.Context, t string)   { c.Set(ctxAuditTgt, t) }
 func AuditTarget(c *gin.Context) string { return c.GetString(ctxAuditTgt) }
 func AuditErr(c *gin.Context) string    { return c.GetString(ctxAuditErr) }
 

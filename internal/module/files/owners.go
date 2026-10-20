@@ -1,8 +1,8 @@
 package files
 
 import (
+	"io"
 	"io/fs"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,24 +11,54 @@ import (
 	"time"
 
 	"github.com/apple2333usa/sshdesktop/internal/api"
+	"github.com/apple2333usa/sshdesktop/internal/vfs"
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/sftp"
 )
 
-// ownerCache 缓存 /etc/passwd 与 /etc/group，文件变化时重新加载。
+// ownerCache 缓存某个节点的 /etc/passwd 与 /etc/group，文件变化时重新加载。
 type ownerCache struct {
-	mu       sync.Mutex
-	loadedAt time.Time
-	users    map[int]string
-	groups   map[int]string
-	byUser   map[string]int
-	byGroup  map[string]int
+	f         vfs.FS
+	mu        sync.Mutex
+	loadedAt  time.Time
+	checkedAt time.Time
+	users     map[int]string
+	groups    map[int]string
+	byUser    map[string]int
+	byGroup   map[string]int
 }
 
-func newOwnerCache() *ownerCache { return &ownerCache{} }
+// ownerSet 按文件系统（每个节点一个）保存 ownerCache。
+type ownerSet struct {
+	mu sync.Mutex
+	m  map[vfs.FS]*ownerCache
+}
 
-func parseIDFile(p string) (map[int]string, map[string]int) {
+func newOwnerSet() *ownerSet { return &ownerSet{m: map[vfs.FS]*ownerCache{}} }
+
+func (o *ownerSet) of(f vfs.FS) *ownerCache {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	c := o.m[f]
+	if c == nil {
+		c = &ownerCache{f: f}
+		o.m[f] = c
+	}
+	return c
+}
+
+func readSmall(f vfs.FS, p string) ([]byte, error) {
+	fh, err := f.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer fh.Close()
+	return io.ReadAll(io.LimitReader(fh, 8<<20))
+}
+
+func parseIDFile(f vfs.FS, p string) (map[int]string, map[string]int) {
 	ids, names := map[int]string{}, map[string]int{}
-	b, err := os.ReadFile(p)
+	b, err := readSmall(f, p)
 	if err != nil {
 		return ids, names
 	}
@@ -50,17 +80,22 @@ func parseIDFile(p string) (map[int]string, map[string]int) {
 }
 
 func (o *ownerCache) refresh() {
+	// 远程节点每次检查都要一次往返，所以最多 10 秒检查一次
+	if o.users != nil && time.Since(o.checkedAt) < 10*time.Second {
+		return
+	}
+	o.checkedAt = time.Now()
 	newest := time.Time{}
 	for _, p := range []string{"/etc/passwd", "/etc/group"} {
-		if fi, err := os.Stat(p); err == nil && fi.ModTime().After(newest) {
+		if fi, err := o.f.Stat(p); err == nil && fi.ModTime().After(newest) {
 			newest = fi.ModTime()
 		}
 	}
 	if o.users != nil && !newest.After(o.loadedAt) {
 		return
 	}
-	o.users, o.byUser = parseIDFile("/etc/passwd")
-	o.groups, o.byGroup = parseIDFile("/etc/group")
+	o.users, o.byUser = parseIDFile(o.f, "/etc/passwd")
+	o.groups, o.byGroup = parseIDFile(o.f, "/etc/group")
 	o.loadedAt = newest
 }
 
@@ -121,16 +156,21 @@ type idName struct {
 }
 
 func (s *Service) ownerList(c *gin.Context) {
-	s.owners.mu.Lock()
-	s.owners.refresh()
+	f, ok := s.fs(c)
+	if !ok {
+		return
+	}
+	o := s.owners.of(f)
+	o.mu.Lock()
+	o.refresh()
 	var users, groups []idName
-	for id, n := range s.owners.users {
+	for id, n := range o.users {
 		users = append(users, idName{n, id})
 	}
-	for id, n := range s.owners.groups {
+	for id, n := range o.groups {
 		groups = append(groups, idName{n, id})
 	}
-	s.owners.mu.Unlock()
+	o.mu.Unlock()
 	sort.Slice(users, func(i, j int) bool { return users[i].ID < users[j].ID })
 	sort.Slice(groups, func(i, j int) bool { return groups[i].ID < groups[j].ID })
 	api.OK(c, gin.H{"users": users, "groups": groups})
@@ -138,8 +178,11 @@ func (s *Service) ownerList(c *gin.Context) {
 
 // times 返回访问时间和状态改变时间（毫秒）。
 func times(fi fs.FileInfo) (int64, int64) {
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+	switch st := fi.Sys().(type) {
+	case *syscall.Stat_t:
 		return time.Unix(st.Atim.Unix()).UnixMilli(), time.Unix(st.Ctim.Unix()).UnixMilli()
+	case *sftp.FileStat: // SFTP 不提供状态改变时间
+		return int64(st.Atime) * 1000, 0
 	}
 	return 0, 0
 }

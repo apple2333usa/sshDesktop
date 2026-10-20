@@ -6,12 +6,14 @@ import { useDesktop, addCloseGuard, type Snap, type WinState } from '@/stores/de
 import { appMap } from '@/apps/registry'
 import AppContainer from '@/apps/AppContainer.vue'
 import SdIcon from '@/components/SdIcon.vue'
+import { useNodes } from '@/stores/nodes'
 
 const props = defineProps<{ win: WinState }>()
 const emit = defineEmits<{ snapPreview: [Snap | 'max' | null] }>()
 
 const { t } = useI18n()
 const desktop = useDesktop()
+const nodes = useNodes()
 const app = appMap[props.win.appId]
 const dragging = ref(false)
 
@@ -160,7 +162,14 @@ function onTitle(title: string) {
     <div class="titlebar" @pointerdown="onTitleDown" @dblclick="desktop.toggleMaximize(win.id)">
       <SdIcon :name="app.icon" :size="16" />
       <span class="title sd-ellipsis">{{ fullTitle }}</span>
-      <span v-if="win.props.node && win.props.node !== 'local'" class="node-tag">{{ win.props.node }}</span>
+      <span
+        v-if="win.props.node && win.props.node !== 'local'"
+        class="node-tag"
+        :class="{ off: !nodes.online(win.props.node) }"
+        :style="{ background: nodes.color(win.props.node) }"
+        :title="nodes.label(win.props.node)"
+        data-testid="win-node-tag"
+      >{{ nodes.name(win.props.node) }}</span>
       <div class="btns">
         <button class="btn" :title="t('window.minimize')" data-testid="win-min" @click="desktop.minimize(win.id)">
           <svg viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" /></svg>
@@ -257,6 +266,14 @@ function onTitle(title: string) {
   border-radius: 8px;
   background: #8764b8;
   color: #fff;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-tag.off {
+  opacity: 0.55;
+  text-decoration: line-through;
 }
 .btns {
   display: flex;

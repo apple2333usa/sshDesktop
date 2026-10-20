@@ -20,7 +20,6 @@ import (
 	"github.com/apple2333usa/sshdesktop/internal/task"
 	"github.com/apple2333usa/sshdesktop/internal/vfs"
 	"github.com/gin-gonic/gin"
-	"github.com/shirou/gopsutil/v4/disk"
 )
 
 const maxEditSize = 10 << 20
@@ -36,10 +35,10 @@ type Deps struct {
 
 type Service struct {
 	d      Deps
-	owners *ownerCache
+	owners *ownerSet
 }
 
-func New(d Deps) *Service { return &Service{d: d, owners: newOwnerCache()} }
+func New(d Deps) *Service { return &Service{d: d, owners: newOwnerSet()} }
 
 // Register 注册到 /api/v1/nodes/:node 下。view / manage 是权限校验中间件。
 func (s *Service) Register(r *gin.RouterGroup, view, manage gin.HandlerFunc) {
@@ -102,7 +101,7 @@ func validName(name string) error {
 type Entry struct {
 	Name       string `json:"name"`
 	Path       string `json:"path"`
-	Type       string `json:"type"` // dir / file / link / other
+	Type       string `json:"type"`  // dir / file / link / other
 	IsDir      bool   `json:"isDir"` // 链接指向目录时也为 true
 	Size       int64  `json:"size"`
 	Mode       string `json:"mode"`
@@ -123,7 +122,8 @@ func (s *Service) entry(f vfs.FS, dir string, fi fs.FileInfo) Entry {
 		Perm: fmt.Sprintf("%04o", fi.Mode().Perm()|specialBits(fi.Mode())), MTime: fi.ModTime().UnixMilli(),
 	}
 	e.UID, e.GID = vfs.Owner(fi)
-	e.Owner, e.Group = s.owners.user(e.UID), s.owners.group(e.GID)
+	oc := s.owners.of(f)
+	e.Owner, e.Group = oc.user(e.UID), oc.group(e.GID)
 	switch {
 	case fi.Mode()&fs.ModeSymlink != 0:
 		e.Type = "link"
@@ -229,15 +229,15 @@ type mountInfo struct {
 
 // mounts 是“此电脑”中的磁盘列表。
 func (s *Service) mounts(c *gin.Context) {
-	var out []mountInfo
-	for _, m := range vfs.Mounts(false) {
-		mi := mountInfo{Point: m.Point, Device: m.Device, FSType: m.FSType}
-		if u, err := disk.Usage(m.Point); err == nil {
-			mi.Total, mi.Used, mi.Free = u.Total, u.Used, u.Free
-		}
-		out = append(out, mi)
+	f, ok := s.fs(c)
+	if !ok {
+		return
 	}
-	api.OK(c, out)
+	out := []mountInfo{}
+	for _, m := range f.MountList() {
+		out = append(out, mountInfo{Point: m.Point, Device: m.Device, FSType: m.FSType, Total: m.Total, Used: m.Used, Free: m.Free})
+	}
+	api.OK(c, gin.H{"mounts": out, "home": f.HomeDir()})
 }
 
 func (s *Service) properties(c *gin.Context) {

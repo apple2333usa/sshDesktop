@@ -6,7 +6,7 @@ const base = (node: string) => `/nodes/${node}/files`
 export const filesApi = {
   list: (node: string, path: string) => api.get<{ path: string; entries: FileEntry[] }>(`${base(node)}/list`, { path }),
   stat: (node: string, path: string) => api.get<FileEntry>(`${base(node)}/stat`, { path }),
-  mounts: (node: string) => api.get<MountInfo[]>(`${base(node)}/mounts`),
+  mounts: (node: string) => api.get<{ mounts: MountInfo[]; home: string }>(`${base(node)}/mounts`),
   properties: (node: string, path: string) =>
     api.get<{ entry: FileEntry; size?: number; files?: number; dirs?: number; partial?: boolean; atime?: number; ctime?: number }>(
       `${base(node)}/properties`,
@@ -21,8 +21,9 @@ export const filesApi = {
   mkdir: (node: string, path: string) => api.post(`${base(node)}/mkdir`, { path }),
   create: (node: string, path: string) => api.post(`${base(node)}/create`, { path }),
   rename: (node: string, path: string, name: string) => api.post<{ path: string }>(`${base(node)}/rename`, { path, name }),
-  paste: (node: string, sources: string[], dest: string, mode: 'copy' | 'move', conflict = 'rename') =>
-    api.post<Task>(`${base(node)}/paste`, { sources, dest, mode, conflict }),
+  /** srcNode 为源文件所在节点，与 node 不同时由面板中转（跨节点复制 / 移动） */
+  paste: (node: string, sources: string[], dest: string, mode: 'copy' | 'move', conflict = 'rename', srcNode = node) =>
+    api.post<Task>(`${base(node)}/paste`, { sources, dest, mode, conflict, srcNode }),
   remove: (node: string, paths: string[], permanent = false, confirmPassword?: string) =>
     api.post(`${base(node)}/delete`, { paths, permanent }, { confirmPassword }),
   chmod: (node: string, paths: string[], mode: string, recursive: boolean) =>

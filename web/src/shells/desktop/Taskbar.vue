@@ -8,6 +8,7 @@ import { usePrefs } from '@/stores/prefs'
 import { useNotify } from '@/stores/notify'
 import { useSession } from '@/stores/session'
 import { realtime } from '@/api/realtime'
+import { useNodes } from '@/stores/nodes'
 import { appMap } from '@/apps/registry'
 import { formatRate } from '@/i18n'
 import type { Sample } from '@/api/types'
@@ -89,6 +90,12 @@ function winTitle(id: string) {
 const time = computed(() => now.value.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
 const date = computed(() => now.value.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/'))
 const connected = realtime.connected
+const nodes = useNodes()
+const nodesTitle = computed(() => {
+  const base = t('taskbar.nodes', { online: nodes.onlineCount, total: nodes.list.length })
+  const bad = nodes.problems.map((n) => `${n.name}：${t('servers.state.' + n.status.state)}`)
+  return [base, ...bad].join('\n')
+})
 </script>
 
 <template>
@@ -127,6 +134,17 @@ const connected = realtime.connected
         <span>↑ {{ formatRate(sample.netTxBps) }}</span>
         <span>↓ {{ formatRate(sample.netRxBps) }}</span>
       </span>
+      <button
+        v-if="nodes.remote.length"
+        class="tb-btn nodes"
+        :class="{ bad: nodes.problems.length }"
+        :title="nodesTitle"
+        data-testid="tb-nodes"
+        @click="desktop.open('servers')"
+      >
+        <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6" /><rect x="4" y="14" width="16" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6" /><circle cx="16.5" cy="6.5" r="1.2" fill="currentColor" /><circle cx="16.5" cy="17.5" r="1.2" fill="currentColor" /></svg>
+        <span class="ncount">{{ nodes.onlineCount }}/{{ nodes.list.length }}</span>
+      </button>
       <span class="conn" :class="{ ok: connected }" :title="connected ? t('taskbar.connected') : t('taskbar.disconnected')">
         <svg viewBox="0 0 24 24"><path d="M4 18h3v3H4zM10 13h3v8h-3zM16 7h3v14h-3z" fill="currentColor" /></svg>
       </span>
@@ -230,6 +248,18 @@ const connected = realtime.connected
   color: var(--sd-text-2);
   padding: 0 6px;
   min-width: 92px;
+}
+.nodes {
+  gap: 3px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+.nodes svg {
+  width: 16px;
+  height: 16px;
+}
+.nodes.bad {
+  color: var(--sd-danger);
 }
 .conn {
   color: var(--sd-danger);

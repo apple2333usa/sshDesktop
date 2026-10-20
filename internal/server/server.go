@@ -19,17 +19,22 @@ import (
 	"github.com/apple2333usa/sshdesktop/internal/audit"
 	"github.com/apple2333usa/sshdesktop/internal/auth"
 	"github.com/apple2333usa/sshdesktop/internal/config"
+	"github.com/apple2333usa/sshdesktop/internal/module/batch"
 	"github.com/apple2333usa/sshdesktop/internal/module/desktop"
 	"github.com/apple2333usa/sshdesktop/internal/module/files"
 	"github.com/apple2333usa/sshdesktop/internal/module/monitor"
+	"github.com/apple2333usa/sshdesktop/internal/module/nodes"
+	"github.com/apple2333usa/sshdesktop/internal/module/probe"
 	"github.com/apple2333usa/sshdesktop/internal/module/process"
 	"github.com/apple2333usa/sshdesktop/internal/module/service"
 	"github.com/apple2333usa/sshdesktop/internal/module/system"
 	"github.com/apple2333usa/sshdesktop/internal/module/terminal"
+	"github.com/apple2333usa/sshdesktop/internal/module/traffic"
 	"github.com/apple2333usa/sshdesktop/internal/module/users"
 	"github.com/apple2333usa/sshdesktop/internal/node"
 	"github.com/apple2333usa/sshdesktop/internal/rbac"
 	"github.com/apple2333usa/sshdesktop/internal/realtime"
+	"github.com/apple2333usa/sshdesktop/internal/secret"
 	"github.com/apple2333usa/sshdesktop/internal/store"
 	"github.com/apple2333usa/sshdesktop/internal/task"
 	"github.com/gin-gonic/gin"
@@ -50,6 +55,9 @@ type Server struct {
 	col      *agent.Collector
 	monitor  *monitor.Service
 	terminal *terminal.Service
+	nodeMgr  *nodes.Service
+	batch    *batch.Service
+	probe    *probe.Service
 
 	engine *gin.Engine
 }
@@ -68,20 +76,37 @@ func New(cfg *config.Config, st *store.Store, version string, web fs.FS) (*Serve
 		col:     agent.NewCollector(),
 	}
 	s.tasks = task.NewManager(st, s.hub)
-	s.monitor = monitor.New(st, s.col, s.hub)
+	s.monitor = monitor.New(st, s.col, s.hub, s.nodes)
 	s.terminal = terminal.New(s.nodes, st, s.audit)
+	s.batch = batch.New(st, s.nodes, s.hub, s.audit.Action)
+	s.probe = probe.New(st, s.hub, s.audit.Action)
 	s.hub.Authorize = s.authorizeChannel
 	if err := ensureSecretKey(cfg.DataDir); err != nil {
 		return nil, err
 	}
+	box, err := secret.Load(filepath.Join(cfg.DataDir, "secret.key"))
+	if err != nil {
+		return nil, err
+	}
+	s.nodeMgr = nodes.New(nodes.Deps{
+		Store: st, Nodes: s.nodes, Hub: s.hub, Tasks: s.tasks, Box: box,
+		Confirm: s.confirm, Audit: s.audit.Action, Version: version,
+		CacheDir: filepath.Join(cfg.DataDir, "agent-cache"),
+	})
+	s.nodeMgr.OnAdded = s.monitor.Attach
+	s.nodeMgr.OnRemoved = s.monitor.Detach
+	s.nodeMgr.OnAgentChanged = s.monitor.Restart
 	if err := s.ensureAdmin(); err != nil {
+		return nil, err
+	}
+	if err := s.nodeMgr.Load(); err != nil {
 		return nil, err
 	}
 	s.engine = s.routes()
 	return s, nil
 }
 
-// ensureSecretKey 首次启动时生成加密主密钥（M2 起用于加密远程节点凭据）。
+// ensureSecretKey 首次启动时生成加密主密钥，用于加密远程节点凭据。
 func ensureSecretKey(dir string) error {
 	p := filepath.Join(dir, "secret.key")
 	if _, err := os.Stat(p); err == nil {
@@ -129,6 +154,12 @@ func (s *Server) authorizeChannel(p *api.Principal, ch string) bool {
 	case "task":
 		rec, _, err := s.tasks.Get(rest)
 		return err == nil && (rec.UserID == p.UserID || s.checker.IsAdmin(p.RoleID))
+	case "node-status":
+		return true
+	case "batch":
+		return s.checker.Has(p.RoleID, rbac.BatchRun)
+	case "probes", "probe-events":
+		return s.checker.Has(p.RoleID, rbac.ProbeView)
 	}
 	return false
 }
@@ -174,8 +205,14 @@ func (s *Server) routes() *gin.Engine {
 		},
 	}).Register(v1, s.perm(rbac.UsersManage))
 
+	s.nodeMgr.Register(v1, nodes.Guards{Login: s.login, Manage: s.perm(rbac.NodesManage)})
+	s.monitor.RegisterGlobal(v1, s.perm(rbac.MonitorView))
+	s.batch.Register(v1, s.perm(rbac.BatchRun))
+	s.probe.Register(v1, s.perm(rbac.ProbeView), s.perm(rbac.ProbeManage))
+
 	n := v1.Group("/nodes/:node", s.nodeGuard)
 	s.monitor.Register(n, s.perm(rbac.MonitorView))
+	traffic.New(s.st, s.monitor.SourceOf).Register(v1, n, s.perm(rbac.MonitorView), s.perm(rbac.NodesManage), a)
 	files.New(files.Deps{Nodes: s.nodes, Tasks: s.tasks, Confirm: s.confirm, Audit: a}).
 		Register(n, s.perm(rbac.FilesView), s.perm(rbac.FilesManage))
 	s.terminal.Register(n, s.perm(rbac.TerminalUse))
@@ -227,6 +264,15 @@ func (s *Server) static(c *gin.Context) {
 func (s *Server) Run(ctx context.Context) error {
 	go s.col.Run(ctx)
 	go s.background(ctx)
+	go s.probe.Run(ctx)
+	defer s.monitor.Stop()
+	if sock := s.agentSocket(); sock != "" {
+		go func() {
+			if err := agent.Serve(ctx, sock, s.monitor.Provider(), s.version, true); err != nil {
+				slog.Warn("面板自带的 agent 接口未启动，其他面板将无法读取本机监控", "socket", sock, "err", err)
+			}
+		}()
+	}
 	srv := &http.Server{
 		Addr:              s.cfg.ListenAddr(),
 		Handler:           s.engine,
@@ -257,6 +303,17 @@ func (s *Server) Run(ctx context.Context) error {
 	return srv.Shutdown(shutdown)
 }
 
+// agentSocket 返回面板自带 agent 接口的 socket 路径；配置为 "-" 时不提供。
+func (s *Server) agentSocket() string {
+	switch s.cfg.AgentSocket {
+	case "":
+		return agent.SocketPath
+	case "-":
+		return ""
+	}
+	return s.cfg.AgentSocket
+}
+
 func (s *Server) background(ctx context.Context) {
 	minute := time.NewTicker(time.Minute)
 	defer minute.Stop()
@@ -265,7 +322,15 @@ func (s *Server) background(ctx context.Context) {
 		s.audit.Cleanup()
 		s.tasks.Cleanup()
 		s.monitor.Cleanup()
-		files.CleanupTrash(s.nodes.Local().FS(), s.st.Runtime().TrashRetentionDays)
+		s.batch.Cleanup()
+		s.probe.Cleanup()
+		days := s.st.Runtime().TrashRetentionDays
+		files.CleanupTrash(s.nodes.Local().FS(), days)
+		for _, n := range s.nodes.Remote() {
+			if n.Status().State == node.StateOnline {
+				go files.CleanupTrash(n.FS(), days)
+			}
+		}
 	}
 	hourly()
 	n := 0

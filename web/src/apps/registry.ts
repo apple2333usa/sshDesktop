@@ -22,6 +22,14 @@ export interface AppManifest {
 
 export const apps: AppManifest[] = [
   {
+    id: 'servers',
+    title: 'apps.servers',
+    icon: 'servers',
+    component: () => import('./servers/ServersApp.vue'),
+    window: { width: 1040, height: 660, minWidth: 420, minHeight: 320, singleton: true },
+    group: 'system',
+  },
+  {
     id: 'monitor',
     title: 'apps.monitor',
     icon: 'monitor',
@@ -64,6 +72,33 @@ export const apps: AppManifest[] = [
     permission: 'process:view',
     component: () => import('./services/ServicesApp.vue'),
     window: { width: 1000, height: 640, minWidth: 600, minHeight: 360, singleton: true },
+    group: 'system',
+  },
+  {
+    id: 'traffic',
+    title: 'apps.traffic',
+    icon: 'traffic',
+    permission: 'monitor:view',
+    component: () => import('./traffic/TrafficApp.vue'),
+    window: { width: 960, height: 660, minWidth: 520, minHeight: 360, singleton: true },
+    group: 'system',
+  },
+  {
+    id: 'batch',
+    title: 'apps.batch',
+    icon: 'batch',
+    permission: 'batch:run',
+    component: () => import('./batch/BatchApp.vue'),
+    window: { width: 1040, height: 660, minWidth: 520, minHeight: 360, singleton: true },
+    group: 'system',
+  },
+  {
+    id: 'probes',
+    title: 'apps.probes',
+    icon: 'probes',
+    permission: 'probe:view',
+    component: () => import('./probes/ProbesApp.vue'),
+    window: { width: 1000, height: 640, minWidth: 520, minHeight: 360, singleton: true },
     group: 'system',
   },
   {

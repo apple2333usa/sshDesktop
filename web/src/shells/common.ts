@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { loadDesktopState, save, stopPersist } from '@/stores/persist'
 import { useHost } from '@/stores/host'
 import { useNotify } from '@/stores/notify'
+import { useNodes } from '@/stores/nodes'
 import { useSession } from '@/stores/session'
 import { useDesktop } from '@/stores/desktop'
 import { usePrefs } from '@/stores/prefs'
@@ -14,11 +15,12 @@ let booted = false
 export function useShellBoot() {
   const host = useHost()
   const notify = useNotify()
+  const nodes = useNodes()
   onMounted(async () => {
     notify.start()
     if (!booted) {
       booted = true
-      await Promise.all([loadDesktopState(), host.load()])
+      await Promise.all([loadDesktopState(), host.load(), nodes.start()])
     }
   })
 }
@@ -37,12 +39,14 @@ export function useLogout() {
   const session = useSession()
   const router = useRouter()
   const notify = useNotify()
+  const nodes = useNodes()
   const desktop = useDesktop()
   return async () => {
     await save()
     stopPersist()
     booted = false
     notify.stop()
+    nodes.stop()
     desktop.reset()
     await session.logout()
     router.replace({ name: 'login' })

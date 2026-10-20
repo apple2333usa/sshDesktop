@@ -444,4 +444,3 @@ func (s *Service) unban(c *gin.Context) {
 	}
 	api.OK(c, nil)
 }
-

@@ -1,4 +1,5 @@
-// 文件操作：资源管理器窗口和桌面共用。
+// 文件操作：资源管理器窗口和桌面共用。node 可以是 ref（资源管理器在不同服务器之间切换）。
+import { toValue, type MaybeRefOrGetter } from 'vue'
 import { useDialog, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { ApiError, Codes } from '@/api/http'
@@ -7,6 +8,7 @@ import type { FileEntry } from '@/api/types'
 import { useFileClipboard } from '@/stores/clipboard'
 import { useNotify } from '@/stores/notify'
 import { useHost } from '@/stores/host'
+import { useNodes } from '@/stores/nodes'
 import { withDanger } from '@/components/danger'
 import { errorText, formatBytes } from '@/i18n'
 import { askCompress, promptText, showProperties } from './dialogs'
@@ -14,13 +16,17 @@ import { askCompress, promptText, showProperties } from './dialogs'
 export const join = (dir: string, name: string) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
 export const parentOf = (p: string) => p.slice(0, p.lastIndexOf('/')) || '/'
 
-export function useFileOps(node: string, refresh: () => void) {
+export function useFileOps(nodeRef: MaybeRefOrGetter<string>, refresh: () => void) {
   const message = useMessage()
   const dialog = useDialog()
   const notify = useNotify()
   const clip = useFileClipboard()
   const host = useHost()
+  const nodes = useNodes()
   const { t } = useI18n()
+  // 每次操作时取当前节点
+  const nodeId = () => toValue(nodeRef)
+  const nodeLabel = () => (nodeId() === 'local' ? host.label : nodes.label(nodeId()))
 
   const fail = (e: unknown) => message.error(errorText(e))
 
@@ -41,19 +47,21 @@ export function useFileOps(node: string, refresh: () => void) {
 
   function copy(entries: FileEntry[]) {
     if (!entries.length) return
-    clip.set('copy', node, entries.map((e) => e.path))
+    clip.set('copy', nodeId(), entries.map((e) => e.path))
     message.info(t('explorer.copied', { n: entries.length }))
   }
 
   function cut(entries: FileEntry[]) {
     if (!entries.length) return
-    clip.set('move', node, entries.map((e) => e.path))
+    clip.set('move', nodeId(), entries.map((e) => e.path))
     message.info(t('explorer.cut', { n: entries.length }))
   }
 
-  async function transfer(sources: string[], dest: string, mode: 'copy' | 'move') {
+  /** 复制或移动到当前节点的 dest；srcNode 为源文件所在节点，不同时由面板中转。 */
+  async function transfer(sources: string[], dest: string, mode: 'copy' | 'move', srcNode = nodeId()) {
+    if (srcNode !== nodeId()) message.info(t('explorer.crossNode', { mode: mode === 'copy' ? t('explorer.copyAction') : t('explorer.cutAction') }))
     try {
-      const task = await filesApi.paste(node, sources, dest, mode)
+      const task = await filesApi.paste(nodeId(), sources, dest, mode, 'rename', srcNode)
       const done = await notify.waitTask(task)
       if (done.status === 'failed') message.error(done.error)
     } catch (e) {
@@ -67,8 +75,9 @@ export function useFileOps(node: string, refresh: () => void) {
     if (!clip.mode || !clip.paths.length) return
     const mode = clip.mode
     const paths = clip.paths
+    const src = clip.node
     if (mode === 'move') clip.clear()
-    await transfer(paths, dest, mode)
+    await transfer(paths, dest, mode, src)
   }
 
   async function permanentDelete(paths: string[]) {
@@ -77,10 +86,11 @@ export function useFileOps(node: string, refresh: () => void) {
         {
           level: 2,
           action: t('explorer.permanentDeleteAction'),
+          node: nodeLabel(),
           impact: paths,
           confirmText: t('explorer.deleteN', { n: paths.length }),
         },
-        (pw) => filesApi.remove(node, paths, true, pw),
+        (pw) => filesApi.remove(nodeId(), paths, true, pw),
       )
       if (r !== undefined) message.success(t('explorer.deleted'))
     } catch (e) {
@@ -100,11 +110,11 @@ export function useFileOps(node: string, refresh: () => void) {
         {
           level: 1,
           action: t('explorer.trashAction'),
-          node: host.label,
+          node: nodeLabel(),
           impact: paths,
           confirmText: t('explorer.trashN', { n: paths.length }),
         },
-        () => filesApi.remove(node, paths),
+        () => filesApi.remove(nodeId(), paths),
       )
       if (r === undefined) return
     } catch (e) {
@@ -124,7 +134,7 @@ export function useFileOps(node: string, refresh: () => void) {
     const name = await promptText({ title: t('explorer.rename'), value: e.name, selectBase: !e.isDir })
     if (!name || name === e.name) return
     try {
-      await filesApi.rename(node, e.path, name)
+      await filesApi.rename(nodeId(), e.path, name)
     } catch (err) {
       fail(err)
     } finally {
@@ -136,7 +146,7 @@ export function useFileOps(node: string, refresh: () => void) {
     const name = await promptText({ title: t('explorer.newFolder'), value: t('explorer.newFolderName') })
     if (!name) return null
     try {
-      await filesApi.mkdir(node, join(dir, name))
+      await filesApi.mkdir(nodeId(), join(dir, name))
       return name
     } catch (err) {
       fail(err)
@@ -150,7 +160,7 @@ export function useFileOps(node: string, refresh: () => void) {
     const name = await promptText({ title: t('explorer.newFile'), value: t('explorer.newFileName'), selectBase: true })
     if (!name) return null
     try {
-      await filesApi.create(node, join(dir, name))
+      await filesApi.create(nodeId(), join(dir, name))
       return name
     } catch (err) {
       fail(err)
@@ -162,15 +172,15 @@ export function useFileOps(node: string, refresh: () => void) {
 
   function download(entries: FileEntry[]) {
     if (!entries.length) return
-    triggerDownload(filesApi.downloadURL(node, entries.map((e) => e.path)))
+    triggerDownload(filesApi.downloadURL(nodeId(), entries.map((e) => e.path)))
   }
 
   async function compress(dir: string, entries: FileEntry[]) {
     if (!entries.length) return
-    const dest = await askCompress(node, dir, entries)
+    const dest = await askCompress(nodeId(), dir, entries)
     if (!dest) return
     try {
-      const task = await filesApi.compress(node, entries.map((e) => e.path), dest)
+      const task = await filesApi.compress(nodeId(), entries.map((e) => e.path), dest)
       await notify.waitTask(task)
     } catch (err) {
       fail(err)
@@ -180,12 +190,13 @@ export function useFileOps(node: string, refresh: () => void) {
   }
 
   function properties(entries: FileEntry[]) {
-    if (entries.length) showProperties(node, entries, refresh)
+    if (entries.length) showProperties(nodeId(), entries, refresh)
   }
 
   /** 上传浏览器中的文件（含拖入的文件夹）。 */
   async function upload(items: { file: File; rel: string }[], dir: string) {
     if (!items.length) return
+    const node = nodeId()
     const total = items.reduce((s, x) => s + x.file.size, 0)
     const ctl = new AbortController()
     const n = notify.push(

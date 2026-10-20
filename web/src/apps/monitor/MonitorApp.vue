@@ -1,19 +1,24 @@
 <script setup lang="ts">
 // 监控概览：概要卡片 + 实时曲线（1 秒）+ 历史曲线（1 小时 / 1 天 / 7 天 / 30 天 / 自定义）。
+// 可在本机和各远程节点之间切换；远程节点的数据来自 agent 或 SSH 定时采集。
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NButton, NDatePicker, NProgress, NRadioButton, NRadioGroup, NSpin, useMessage } from 'naive-ui'
+import { NAlert, NButton, NDatePicker, NProgress, NRadioButton, NRadioGroup, NSpin, NTag, useMessage } from 'naive-ui'
 import { api } from '@/api/http'
 import { realtime } from '@/api/realtime'
-import type { HostInfo, Metric, Sample } from '@/api/types'
+import type { HostInfo, Metric, MonitorSource, Sample } from '@/api/types'
 import { useAppHost } from '@/apps/host'
 import LineChart, { type ChartSeries } from '@/components/LineChart.vue'
+import NodePicker from '@/components/NodePicker.vue'
 import { errorText, formatBytes, formatDuration, formatRate } from '@/i18n'
 
 const host = useAppHost()
 const { t } = useI18n()
 const message = useMessage()
-const node = (host.props.node as string) || 'local'
+const node = ref((host.props.node as string) || 'local')
+const source = ref<MonitorSource>('')
+const agentVersion = ref('')
+const srcError = ref('')
 
 const info = ref<HostInfo | null>(null)
 const sample = ref<Sample | null>(null)
@@ -52,7 +57,7 @@ watch(host.visible, (v) => v && flush())
 async function loadLive() {
   loading.value = true
   try {
-    points.value = await api.get<Sample[]>(`/nodes/${node}/monitor/realtime`, { seconds: KEEP })
+    points.value = await api.get<Sample[]>(`/nodes/${node.value}/monitor/realtime`, { seconds: KEEP })
   } catch (e) {
     message.error(errorText(e))
   } finally {
@@ -75,7 +80,7 @@ async function loadHistory() {
   }
   loading.value = true
   try {
-    const r = await api.get<{ step: number; points: Metric[] }>(`/nodes/${node}/monitor/history`, { from, to })
+    const r = await api.get<{ step: number; points: Metric[] }>(`/nodes/${node.value}/monitor/history`, { from, to })
     step.value = r.step
     points.value = r.points
   } catch (e) {
@@ -97,18 +102,56 @@ watch(mode, (m) => {
 })
 watch(custom, () => mode.value === 'custom' && loadHistory())
 
-onMounted(async () => {
+async function loadCurrent() {
   try {
-    const r = await api.get<{ info: HostInfo; sample: Sample | null }>(`/nodes/${node}/monitor/current`)
+    const r = await api.get<{ info: HostInfo | null; sample: Sample | null; source: MonitorSource; agentVersion: string; error: string }>(
+      `/nodes/${node.value}/monitor/current`,
+    )
     info.value = r.info
     sample.value = r.sample
+    source.value = r.source
+    agentVersion.value = r.agentVersion ?? ''
+    srcError.value = r.error ?? ''
   } catch (e) {
     message.error(errorText(e))
   }
+}
+
+function attach() {
+  unsub?.()
+  info.value = null
+  sample.value = null
+  points.value = []
+  loadCurrent()
   reload()
-  unsub = realtime.subscribe(`metrics:${node}`, onSample)
+  unsub = realtime.subscribe(`metrics:${node.value}`, onSample)
+}
+
+watch(node, (n) => {
+  host.setState({ node: n })
+  attach()
 })
+// 单例窗口被再次打开（如从服务器卡片墙点进来）时切换到指定节点
+watch(
+  () => host.props.node as string | undefined,
+  (v) => {
+    if (v && v !== node.value) node.value = v
+  },
+)
+
+onMounted(attach)
 onUnmounted(() => unsub?.())
+
+const sourceText = computed(
+  () =>
+    ({
+      local: '',
+      agent: `agent ${agentVersion.value}`,
+      panel: `面板 ${agentVersion.value}`,
+      ssh: 'SSH 采集（无 agent）',
+      '': '等待数据',
+    })[source.value],
+)
 
 /* ---------- 图表数据 ---------- */
 const long = computed(() => mode.value !== 'live' && mode.value !== '1h')
@@ -142,6 +185,10 @@ const status = (v: number) => (v > 90 ? 'error' : v > 75 ? 'warning' : 'info')
 <template>
   <div class="monitor sd-scroll" data-testid="monitor">
     <div class="head">
+      <div class="hostline">
+        <NodePicker v-model:value="node" />
+        <NTag v-if="node !== 'local'" size="small" :bordered="false" :type="source === 'ssh' || !source ? 'warning' : 'success'">{{ sourceText }}</NTag>
+      </div>
       <div v-if="info" class="hostline">
         <b>{{ info.hostname }}</b>
         <span class="sd-muted">{{ info.platform }} {{ info.platformVersion }} · {{ info.kernel }} · {{ info.arch }}</span>
@@ -161,6 +208,11 @@ const status = (v: number) => (v > 90 ? 'error' : v > 75 ? 'warning' : 'info')
         <NButton v-if="mode !== 'live'" size="small" quaternary @click="reload">{{ t('explorer.refresh') }}</NButton>
       </div>
     </div>
+
+    <NAlert v-if="srcError && node !== 'local'" type="warning" :bordered="false" class="src-err">{{ srcError }}</NAlert>
+    <NAlert v-if="source === 'ssh'" type="info" :bordered="false" class="src-err">
+      这台服务器没有安装 agent：每 5 秒采集一次，历史只在面板连着时记录，没有按月流量。可在“服务器”中一键安装 agent。
+    </NAlert>
 
     <div v-if="s" class="cards">
       <div class="card" data-testid="card-cpu">
@@ -288,6 +340,9 @@ const status = (v: number) => (v > 90 ? 'error' : v > 75 ? 'warning' : 'info')
   gap: 4px 12px;
   font-size: 13px;
   align-items: baseline;
+}
+.src-err {
+  margin-bottom: 10px;
 }
 .range {
   display: flex;

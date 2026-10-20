@@ -82,8 +82,11 @@ func trashRoots(f vfs.FS) []string {
 	var out []string
 	seen := map[string]bool{}
 	points := []string{"/"}
-	for _, m := range vfs.Mounts(false) {
+	for _, m := range f.MountList() {
 		points = append(points, m.Point)
+	}
+	if root, err := f.TrashRoot(f.HomeDir()); err == nil {
+		points = append(points, path.Dir(root))
 	}
 	for _, mp := range points {
 		root := path.Join(mp, trashDirName)

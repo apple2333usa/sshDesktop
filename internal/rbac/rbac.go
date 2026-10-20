@@ -32,6 +32,14 @@ const (
 	BatchRun       = "batch:run"
 	ProbeView      = "probe:view"
 	ProbeManage    = "probe:manage"
+	DockerView     = "docker:view"
+	DockerManage   = "docker:manage"
+	AppstoreView   = "appstore:view"
+	AppstoreManage = "appstore:manage"
+	CronView       = "cron:view"
+	CronManage     = "cron:manage"
+	BackupView     = "backup:view"
+	BackupManage   = "backup:manage"
 )
 
 // Catalog 是当前版本支持的全部权限点，顺序即界面展示顺序。
@@ -46,6 +54,14 @@ var Catalog = []Perm{
 	{Key: BatchRun, Module: "batch", RootEquivalent: true},
 	{Key: ProbeView, Module: "probe"},
 	{Key: ProbeManage, Module: "probe"},
+	{Key: DockerView, Module: "docker"},
+	{Key: DockerManage, Module: "docker", RootEquivalent: true},
+	{Key: AppstoreView, Module: "appstore"},
+	{Key: AppstoreManage, Module: "appstore", RootEquivalent: true},
+	{Key: CronView, Module: "cron"},
+	{Key: CronManage, Module: "cron", RootEquivalent: true},
+	{Key: BackupView, Module: "backup"},
+	{Key: BackupManage, Module: "backup", RootEquivalent: true},
 	{Key: AuditView, Module: "audit"},
 	{Key: SystemPower, Module: "system"},
 	{Key: UsersManage, Module: "users", AdminOnly: true},
@@ -74,10 +90,11 @@ func Seed(db *gorm.DB) error {
 		perms []string
 	}{
 		{store.Role{Name: AdminRoleName, IsAdmin: true, Description: "全部权限，不可修改"}, nil},
-		{store.Role{Name: OpsRoleName, Description: "日常运维：监控、文件、终端、进程与服务"},
-			[]string{MonitorView, FilesView, FilesManage, TerminalUse, ProcessView, ProcessManage, AuditView, BatchRun, ProbeView, ProbeManage}},
+		{store.Role{Name: OpsRoleName, Description: "日常运维：监控、文件、终端、进程与服务、容器与应用、计划任务与备份"},
+			[]string{MonitorView, FilesView, FilesManage, TerminalUse, ProcessView, ProcessManage, AuditView, BatchRun, ProbeView, ProbeManage,
+				DockerView, DockerManage, AppstoreView, AppstoreManage, CronView, CronManage, BackupView, BackupManage}},
 		{store.Role{Name: ReadonlyRoleName, Description: "只能查看监控、文件和进程"},
-			[]string{MonitorView, FilesView, ProcessView, ProbeView}},
+			[]string{MonitorView, FilesView, ProcessView, ProbeView, DockerView, AppstoreView, CronView, BackupView}},
 	}
 	for _, s := range seeds {
 		var n int64

@@ -39,6 +39,8 @@ type Size struct{ Cols, Rows uint16 }
 type ShellOptions struct {
 	Size Size
 	Dir  string
+	// Command 不为空时执行该命令而不是登录 shell（仅本机，用于进入容器终端）
+	Command []string
 }
 
 type Result struct {

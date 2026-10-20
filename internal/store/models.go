@@ -230,6 +230,117 @@ type BatchResult struct {
 	Seq int `gorm:"-" json:"seq,omitempty"`
 }
 
+// Docker 与应用商店
+
+// ComposeProject 是面板创建或登记的 Compose 项目（服务器上已有的项目从容器标签识别，不入库）。
+type ComposeProject struct {
+	Name      string    `gorm:"primaryKey;size:64" json:"name"`
+	Dir       string    `json:"dir"`
+	File      string    `json:"file"`    // 相对 Dir 的文件名，空则自动查找
+	Managed   bool      `json:"managed"` // 目录由面板创建，删除项目时可一并删除
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// AppInstalled 是应用商店安装的应用。Name 同时是 Compose 项目名和默认容器名。
+type AppInstalled struct {
+	Name      string    `gorm:"primaryKey;size:64" json:"name"`
+	Source    string    `gorm:"size:64" json:"source"`
+	Key       string    `gorm:"size:128;index" json:"key"`
+	Title     string    `gorm:"size:128" json:"title"`
+	Version   string    `gorm:"size:64" json:"version"`
+	Dir       string    `json:"dir"`
+	Params    string    `gorm:"type:text" json:"-"`    // JSON：表单参数
+	Status    string    `gorm:"size:16" json:"status"` // installing / installed / failed / upgrading
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (AppInstalled) TableName() string { return "apps_installed" }
+
+// 计划任务
+
+type CronJob struct {
+	ID       uint   `gorm:"primaryKey" json:"id"`
+	Name     string `gorm:"size:64;not null" json:"name"`
+	Type     string `gorm:"size:16;not null" json:"type"` // shell / backup / url / cleanup
+	Schedule string `gorm:"size:64;not null" json:"schedule"`
+	Enabled  bool   `json:"enabled"`
+	Script   string `gorm:"type:text" json:"script"`
+	URL      string `json:"url"`
+	PlanID   uint   `gorm:"index" json:"planId"` // 备份计划
+	// 清理日志：目录（每行一个）、文件名模式、保留天数
+	CleanDirs    string     `gorm:"type:text" json:"cleanDirs"`
+	CleanPattern string     `gorm:"size:128" json:"cleanPattern"`
+	CleanDays    int        `json:"cleanDays"`
+	Timeout      int        `json:"timeout"`  // 秒，0 表示不限
+	KeepRuns     int        `json:"keepRuns"` // 保留的执行记录数
+	LastRunAt    *time.Time `json:"lastRunAt"`
+	LastStatus   string     `gorm:"size:16" json:"lastStatus"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
+}
+
+type CronRun struct {
+	ID         uint       `gorm:"primaryKey" json:"id"`
+	JobID      uint       `gorm:"index" json:"jobId"`
+	Trigger    string     `gorm:"size:16" json:"trigger"` // cron / manual
+	Status     string     `gorm:"size:16" json:"status"`  // running / success / failed / skipped
+	ExitCode   int        `json:"exitCode"`
+	Output     string     `gorm:"type:text" json:"output,omitempty"`
+	StartedAt  time.Time  `gorm:"index" json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt"`
+	DurationMs int64      `json:"durationMs"`
+}
+
+// 备份
+
+type BackupTarget struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"size:64;not null" json:"name"`
+	Type      string    `gorm:"size:16;not null" json:"type"` // local / s3 / webdav / sftp
+	Config    string    `gorm:"type:text" json:"-"`           // JSON：不含密钥的配置
+	Secret    []byte    `json:"-"`                            // 加密的密钥（S3 Secret Key、WebDAV 密码）
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type BackupPlan struct {
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	Name      string `gorm:"size:64;not null" json:"name"`
+	Type      string `gorm:"size:16;not null" json:"type"` // dir / app / panel
+	Source    string `json:"source"`                       // 目录路径或应用名
+	Excludes  string `gorm:"type:text" json:"excludes"`    // 每行一个排除模式
+	TargetIDs string `json:"-"`                            // 逗号分隔
+	Encrypt   bool   `json:"encrypt"`
+	Password  []byte `json:"-"` // 加密保存的备份密码
+	KeepCount int    `json:"keepCount"`
+	KeepDays  int    `json:"keepDays"`
+	StopApp   bool   `json:"stopApp"` // 备份应用前暂停容器
+	// IncludeSecretKey 备份面板时包含主密钥（默认不包含，见设计文档 8.5）
+	IncludeSecretKey bool      `json:"includeSecretKey"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+type BackupRecord struct {
+	ID         uint       `gorm:"primaryKey" json:"id"`
+	PlanID     uint       `gorm:"index" json:"planId"`
+	PlanName   string     `gorm:"size:64" json:"planName"`
+	Type       string     `gorm:"size:16" json:"type"`
+	Source     string     `json:"source"`
+	TargetID   uint       `gorm:"index" json:"targetId"`
+	TargetName string     `gorm:"size:64" json:"targetName"`
+	Key        string     `json:"key"` // 存储中的对象路径
+	Size       int64      `json:"size"`
+	Encrypted  bool       `json:"encrypted"`
+	Status     string     `gorm:"size:16" json:"status"`  // running / success / failed
+	Trigger    string     `gorm:"size:16" json:"trigger"` // manual / cron / snapshot
+	Error      string     `json:"error"`
+	StartedAt  time.Time  `gorm:"index" json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt"`
+}
+
 func allModels() []any {
 	return []any{
 		&User{}, &Role{}, &RolePermission{}, &Session{}, &LoginAttempt{}, &IPBan{},
@@ -237,5 +348,7 @@ func allModels() []any {
 		&DesktopState{}, &Setting{},
 		&Node{}, &NodeCredential{}, &NodeHostKey{}, &TrafficDaily{},
 		&Probe{}, &ProbeResult{}, &Snippet{}, &BatchRun{}, &BatchResult{},
+		&ComposeProject{}, &AppInstalled{}, &CronJob{}, &CronRun{},
+		&BackupTarget{}, &BackupPlan{}, &BackupRecord{},
 	}
 }

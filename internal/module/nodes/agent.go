@@ -117,34 +117,6 @@ func (s *Service) agentUninstall(c *gin.Context) {
 	api.OK(c, t)
 }
 
-// lineLog 把命令输出按行写入任务日志。
-type lineLog struct {
-	t   *task.Task
-	buf []byte
-}
-
-func (l *lineLog) Write(p []byte) (int, error) {
-	l.buf = append(l.buf, p...)
-	for {
-		i := bytes.IndexByte(l.buf, '\n')
-		if i < 0 {
-			break
-		}
-		if line := strings.TrimRight(string(l.buf[:i]), "\r"); line != "" {
-			l.t.Log("%s", line)
-		}
-		l.buf = l.buf[i+1:]
-	}
-	return len(p), nil
-}
-
-func (l *lineLog) Flush() {
-	if s := strings.TrimSpace(string(l.buf)); s != "" {
-		l.t.Log("%s", s)
-	}
-	l.buf = nil
-}
-
 // rootRunner 返回以 root 身份执行脚本的函数：root 直接执行，否则依次尝试免密 sudo 和用登录密码 sudo。
 func rootRunner(ctx context.Context, n *node.SSH) (func(ctx context.Context, script string, out io.Writer) (int, error), error) {
 	res, err := n.Exec(ctx, "id", "-u")
@@ -176,7 +148,7 @@ func rootRunner(ctx context.Context, n *node.SSH) (func(ctx context.Context, scr
 }
 
 func runRoot(ctx context.Context, t *task.Task, run func(context.Context, string, io.Writer) (int, error), script string) error {
-	out := &lineLog{t: t}
+	out := t.Lines()
 	code, err := run(ctx, script, out)
 	out.Flush()
 	if err != nil {

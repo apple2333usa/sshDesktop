@@ -267,12 +267,18 @@ export const useDesktop = defineStore('desktop', () => {
     }
   }
 
+  // 恢复保存的窗口。读取是异步的，期间用户已经打开的窗口保留在最上层（同一目标以已打开的为准）。
   function restore(saved: { windows?: SavedWin[]; icons?: string[] } | undefined) {
+    const opened = windows.value
     windows.value = []
-    if (!saved) return
+    if (!saved) {
+      windows.value = opened
+      return
+    }
     icons.value = saved.icons ?? []
     for (const s of saved.windows ?? []) {
       if (!appMap[s.appId]) continue
+      if (opened.some((w) => sameTarget(w, s.appId, s.props ?? {}))) continue
       const w: WinState = {
         id: newId(),
         appId: s.appId,
@@ -291,6 +297,10 @@ export const useDesktop = defineStore('desktop', () => {
       clamp(w)
       windows.value.push(w)
       topZ.value = Math.max(topZ.value, w.z)
+    }
+    for (const w of opened) {
+      w.z = ++topZ.value
+      windows.value.push(w)
     }
     const top = [...windows.value].filter((w) => !w.minimized).sort((a, b) => b.z - a.z)[0]
     activeId.value = top?.id ?? null

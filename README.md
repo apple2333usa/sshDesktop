@@ -1,12 +1,12 @@
 # sshDesktop
 
-> 版本：0.2.0 · 更新时间：2026-10-20 20:45 +08:00 · 状态：M2（多服务器）完成
+> 版本：0.2.1 · 更新时间：2026-10-20 22:04 +08:00 · 状态：M2（多服务器）完成
 
 sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合了 [1Panel](https://github.com/1Panel-dev/1Panel) 的主机管理能力和[哪吒探针](https://github.com/nezhahq/nezha)的多机监控能力。除了传统的后台界面，它还提供**桌面模式**：在浏览器里渲染一个 Windows 11 风格的桌面，有任务栏、开始菜单、可拖拽的窗口和文件资源管理器，让你用操作 PC 的方式管理服务器。
 
 以 GPL-3.0 开源。
 
-## 当前功能（0.2.0）
+## 当前功能（0.2.1）
 
 | 功能 | 说明 | 代码 |
 | --- | --- | --- |
@@ -23,7 +23,7 @@ sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合
 | 系统服务 | systemd 单元列表与筛选、启动停止重启、开机自启、实时日志、查看单元文件 | `internal/module/service/`、`web/src/apps/services/` |
 | 设置 | 个性化、终端、修改密码、面板运行参数、关于 | `internal/module/system/`、`web/src/apps/settings/` |
 | 服务器管理 | 添加远程服务器（私钥或密码，凭据用主密钥 AES-256-GCM 加密；首次连接核对主机指纹，指纹变化拒绝连接并醒目提示，二级确认后才接受新指纹）、修改、删除（二级确认）、重新连接；每台服务器一条 SSH 长连接，终端、SFTP、agent 通道、命令复用，断线指数退避重连，每台最多 32 个通道、8 个文件传输。多服务器卡片墙总览，任务栏托盘与小组件显示在线状态，断线和恢复进入通知中心 | `internal/node/`、`internal/module/nodes/`、`internal/secret/`、`web/src/apps/servers/`、`web/src/stores/nodes.ts` |
-| agent | 独立的只读 agent（`/run/sshdesktop/agent.sock`，systemd + DynamicUser 运行，保存 7 天分钟级指标和流量计数），面板经 SSH 通道读取；一键安装通过 SFTP 上传与对方架构匹配的二进制，远程服务器不需要外网，需要 root 或 sudo。面板自身在同一 socket 提供相同接口；没有 agent 时每 5 秒经 SSH 采集 | `cmd/sshdesktop-agent/`、`internal/agent/`、`internal/agentbin/`、`internal/module/nodes/agent.go`、`internal/module/monitor/remote.go` |
+| agent | 独立的只读 agent（systemd + DynamicUser 运行，socket `/run/sshdesktop/agent.sock` 由 `sshdesktop-agent.socket` 创建，保存 7 天分钟级指标和流量计数），面板经 SSH 通道读取；一键安装通过 SFTP 上传与对方架构匹配的二进制，远程服务器不需要外网，需要 root 或 sudo。面板自身在同一 socket 提供相同接口；没有 agent 时每 5 秒经 SSH 采集 | `cmd/sshdesktop-agent/`、`internal/agent/`、`internal/agentbin/`、`internal/module/nodes/agent.go`、`internal/module/monitor/remote.go` |
 | 远程文件与终端 | 资源管理器“网络”下每台服务器一个网络位置（SFTP），跨服务器复制、剪切、拖放由面板中转并显示进度；终端可在任意服务器上开标签页或分屏，同步输入可同时发给多台服务器；窗口标题栏用彩色标签标出所属服务器 | `internal/vfs/sftp.go`、`internal/module/files/ops.go`、`web/src/apps/explorer/`、`web/src/apps/terminal/` |
 | 按月流量 | 各服务器、各网卡的上行 / 下行 / 合计，每月重置日与额度（按合计、仅下行或仅上行计算），每日柱状图与最近 12 期；需要 agent 或面板 | `internal/module/traffic/`、`web/src/apps/traffic/` |
 | 批量命令 | 选择多台服务器并发执行（默认并发 5，可设超时），按服务器分栏实时显示输出和退出码，执行记录与共享命令片段；一级确认列出全部目标 | `internal/module/batch/`、`web/src/apps/batch/` |
@@ -62,7 +62,7 @@ sshdesktop config set https true && systemctl restart sshdesktop
 
 ### 添加其他服务器
 
-其他服务器不需要装面板。在桌面打开“服务器”→“添加服务器”，填地址、端口和 SSH 账号，点“获取指纹”并与服务器上 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 的输出核对，再填私钥或密码保存。之后可在卡片菜单里“安装 agent”获得完整的监控历史和按月流量；不装也能用文件、终端、批量命令和 5 秒一次的监控。远程服务器的凭据加密保存在面板数据目录，主密钥是 `<数据目录>/secret.key`（备份数据目录时一并备份）。配置项 `agentSocket` 可改面板自身 agent 接口的路径，设为 `-` 关闭。
+其他服务器不需要装面板。在桌面打开“服务器”→“添加服务器”，填地址、端口和 SSH 账号，点“获取指纹”并与服务器上 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 的输出核对，再填私钥或密码保存。之后可在卡片菜单里“安装 agent”获得完整的监控历史和按月流量；不装也能用文件、终端、批量命令和 5 秒一次的监控。远程服务器的凭据加密保存在面板数据目录，主密钥是 `<数据目录>/secret.key`（备份数据目录时一并备份）。`sshdesktop config set agent-socket <路径>` 可改面板自身 agent 接口的路径，设为 `-` 关闭。
 
 ## 开发
 

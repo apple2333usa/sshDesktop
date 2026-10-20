@@ -46,4 +46,20 @@ describe('桌面窗口管理器', () => {
     expect(w.x + 120).toBeLessThanOrEqual(800)
     expect(w.y).toBeGreaterThanOrEqual(0)
   })
+
+  it('读回保存状态之前打开的窗口不会被恢复清掉，并保持在最上层', () => {
+    const d = useDesktop()
+    d.open('monitor')
+    d.open('terminal')
+    const saved = JSON.parse(JSON.stringify(d.serialize()))
+    d.reset()
+    const opened = d.open('monitor')!
+    d.open('explorer')
+    const explorer = d.activeId
+    d.restore(saved)
+    // 单例监控以已打开的为准，终端从保存状态恢复
+    expect(d.windows.map((w) => w.appId).sort()).toEqual(['explorer', 'monitor', 'terminal'])
+    expect(d.windows.find((w) => w.appId === 'monitor')!.id).toBe(opened)
+    expect(d.activeId).toBe(explorer)
+  })
 })

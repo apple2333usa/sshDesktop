@@ -118,7 +118,7 @@ func (c *Config) Save() error {
 }
 
 // Keys 是 `sshdesktop config get/set` 支持的键。
-var Keys = []string{"port", "domain", "https", "https.cert", "https.key", "log-level", "data-dir", "log-dir"}
+var Keys = []string{"port", "domain", "https", "https.cert", "https.key", "log-level", "data-dir", "log-dir", "agent-socket"}
 
 func (c *Config) Get(key string) (string, error) {
 	switch key {
@@ -138,6 +138,8 @@ func (c *Config) Get(key string) (string, error) {
 		return c.DataDir, nil
 	case "log-dir":
 		return c.LogDir, nil
+	case "agent-socket":
+		return c.AgentSocket, nil
 	}
 	return "", fmt.Errorf("未知配置项 %q，可用：%s", key, strings.Join(Keys, ", "))
 }
@@ -173,6 +175,8 @@ func (c *Config) Set(key, value string) error {
 		c.DataDir = value
 	case "log-dir":
 		c.LogDir = value
+	case "agent-socket":
+		c.AgentSocket = value
 	default:
 		return fmt.Errorf("未知配置项 %q，可用：%s", key, strings.Join(Keys, ", "))
 	}
@@ -191,6 +195,8 @@ func (c *Config) Unset(key string) error {
 		c.Port = d.Port
 	case "log-level":
 		c.LogLevel = d.LogLevel
+	case "agent-socket":
+		c.AgentSocket = ""
 	default:
 		return fmt.Errorf("配置项 %q 不支持 unset", key)
 	}

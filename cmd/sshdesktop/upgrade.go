@@ -102,6 +102,11 @@ func download(tag, mirror string) (string, error) {
 		os.Remove(tmp.Name())
 		return "", fmt.Errorf("校验失败：期望 %s，实际 %s", want, got)
 	}
+	// CreateTemp 建的文件是 0600，升级前要先执行新版本的 version 自检
+	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
 	return tmp.Name(), nil
 }
 

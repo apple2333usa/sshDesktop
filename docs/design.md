@@ -177,6 +177,7 @@ Docker、网站、防火墙、SSH 设置、计划任务、备份、应用商店�
 ### 4.4 agent 接口
 
 - 传输：Unix socket `/run/sshdesktop/agent.sock` 上的 HTTP/1.1 + JSON，长连接流式推送用分块传输（NDJSON）。
+- 独立 agent 以 systemd 动态用户（DynamicUser）运行，socket 由 `sshdesktop-agent.socket` 以 root 创建后经 socket 激活交给 agent：新版 systemd 会把动态用户的 RuntimeDirectory 放进只有 root 能进入的 `/run/private`，非 root 的 SSH 账号就连不上了。
 - 权限：socket 文件权限 0666，但只提供普通用户本来就能读到的信息（`/proc` 中的系统指标、网卡计数、进程名与资源占用），不提供命令行参数、环境变量、文件内容，也没有任何写接口。所以无论哪个面板、用哪个 SSH 账号来读，都不构成提权。
 - 接口：
 

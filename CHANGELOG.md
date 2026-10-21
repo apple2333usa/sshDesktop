@@ -257,5 +257,5 @@
   - 前端类型检查和 vitest 11 项通过。
   - Playwright e2e（`SD_M3=1 SD_M4=1 SD_NO_SYSTEMD=1`，多服务器用例用本机 sshd）27 项全部通过。M3 的 Docker 用例第一次因 Docker Hub 限流（429）拉不到 `alpine:3`，换镜像源预先拉取后通过。
   - 面板内升级：在 Debian 13 systemd 容器里装了版本号标为 0.4.0 的本版构建，经接口一键升级到真实发布的 v0.4.1，升级日志完整，健康检查通过，备份目录生成。
-  - 发行版集成测试（加 `--docker`）：Ubuntu 22.04 / 24.04、Debian 12 / 13 全部通过（Docker 29.9.2）。Rocky / Alma 的结果见下一条。云端宿主机是 cgroup v1，Ubuntu 26.04 的 systemd 无法在容器里启动，只能在 CI 中测。
+  - 发行版集成测试（加 `--docker`）：Ubuntu 22.04 / 24.04、Debian 12 / 13、Rocky 9 / 10、Alma 9 / 10 全部通过（Docker 29.9.2；Rocky / Alma 走 CentOS 软件源的回退安装）。云端宿主机是 cgroup v1，Ubuntu 26.04 的 systemd 无法在容器里启动，只能在 CI 中测。
   - 还没有在测试服务器上实测。

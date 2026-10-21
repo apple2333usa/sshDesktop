@@ -218,3 +218,16 @@
   - 云端容器中 `go vet`、`go test ./...` 通过。新增测试：重新加载后立即请求得到新配置（临时 nginx 连续重新加载 5 次，去掉等待时失败）、1Panel / fail2ban 规则链识别、其他面板识别、命令行删除账号（含保护最后一个管理员）。
   - 前端类型检查、vitest 11 项通过；OpenResty 容器的 Compose 文件用 `docker compose config` 校验通过。
   - Playwright e2e（`SD_M3=1 SD_M4=1 SD_NO_SYSTEMD=1`）在全新面板上 19 项全部通过，多服务器用例没有跑。
+
+## 2026-10-21 16:56 +08:00 · 0.4.1 · 0.4.1 服务器复测
+
+- 简介：发布 0.4.1，在测试服务器上复测 0.4.0 实测发现的问题。只补记验证结果，代码没有改动。
+- 对应文件：`CHANGELOG.md`
+- 验证与限制：
+  - PR #12 的 CI 通过后合并，推送 v0.4.1 标签，Release 的 5 个文件齐全；`sshdesktop upgrade` 从 0.4.0 升级到 0.4.1 成功，之后没有新的警告和错误。
+  - 防火墙：识别出 1Panel 和 fail2ban 的规则链，提示继续在 1Panel 中管理防火墙，不再建议安装 ufw。体检的防火墙项显示“由 1Panel 管理”，系统项显示“已安装 1Panel”并给出共存提示。
+  - 网站（OpenResty 容器）：容器内文件句柄上限 65535，日志中没有 `worker_connections` 警告；连续 5 轮新建站点后立即访问都返回 200，删除后立即访问不再是面板页面；修改站点时不带 `enabled`，站点仍保持启用。
+  - 面板访问方式：切换到公网 HTTPS 并确认，再切回仅本机后，`config.yaml` 与测试前逐字节一致，没有残留域名。
+  - SSH 改端口后撤销，日志记为“修改已撤销”，5522 端口始终可用。
+  - `sshdesktop user delete`：不存在的账号报错并以 1 退出；删除临时管理员后其会话立即失效。
+  - 测试数据已清理：站点、证书、OpenResty（容器、镜像、目录、设置）、临时管理员和服务器上的临时目录都已删除，空的 `/var/www`、`/var/lib/sshdesktop/certs` 一并删除。SSH 配置、`authorized_keys`、`config.yaml` 与测试前一致，iptables 规则（去掉计数后）一致，1Panel 和 fail2ban 没有改动。

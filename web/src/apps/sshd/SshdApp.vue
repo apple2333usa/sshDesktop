@@ -213,7 +213,7 @@ const loginCols = computed<DataTableColumns<SshLogin>>(() => [
           <NSelect v-model:value="keyUser" size="small" :options="users.map((u) => ({ value: u.name, label: u.name }))" style="width: 160px" />
           <span class="sd-muted small sd-mono">{{ keyPath }}</span>
           <span style="flex: 1" />
-          <NButton v-if="canManage" size="small" type="primary" @click="showKey = true">{{ t('sshd.addKey') }}</NButton>
+          <NButton v-if="canManage" size="small" type="primary" data-testid="sshd-add-key" @click="showKey = true">{{ t('sshd.addKey') }}</NButton>
         </div>
         <NDataTable class="sd-fill" size="small" flex-height :columns="keyCols" :data="keys" :row-key="(k: SshKey) => k.line" :bordered="false" />
       </NTabPane>
@@ -238,12 +238,12 @@ const loginCols = computed<DataTableColumns<SshLogin>>(() => [
     </NTabs>
 
     <NModal v-model:show="showKey" preset="card" :title="t('sshd.addKeyFor', { user: keyUser })" style="width: 560px; max-width: calc(100vw - 32px)">
-      <NInput v-model:value="newKey" type="textarea" :autosize="{ minRows: 4, maxRows: 8 }" class="code" placeholder="ssh-ed25519 AAAA… user@pc" />
+      <NInput v-model:value="newKey" type="textarea" :autosize="{ minRows: 4, maxRows: 8 }" class="code" placeholder="ssh-ed25519 AAAA… user@pc" data-testid="sshd-key" />
       <div class="sd-muted small" style="margin-top: 6px">{{ t('sshd.addKeyHint') }}</div>
       <template #footer>
         <div class="foot">
           <NButton @click="showKey = false">{{ t('common.cancel') }}</NButton>
-          <NButton type="primary" :disabled="!newKey.trim()" @click="addKey">{{ t('common.save') }}</NButton>
+          <NButton type="primary" :disabled="!newKey.trim()" data-testid="sshd-key-save" @click="addKey">{{ t('common.save') }}</NButton>
         </div>
       </template>
     </NModal>

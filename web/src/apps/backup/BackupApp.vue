@@ -159,21 +159,15 @@ const sites = ref<Website[]>([])
 async function openForm(p?: BackupPlan) {
   editing.value = p ?? null
   form.value = p ? { ...p, password: '' } : { ...blank(), targetIds: targets.value.length === 1 ? [targets.value[0].id] : [] }
+  // 先取应用和网站列表再打开表单，避免表单打开后选项变化打断正在进行的选择
+  const list = <T,>(perm: string, url: string) => (session.has(perm) ? api.get<T[]>(url).catch(() => [] as T[]) : Promise.resolve([] as T[]))
+  const [a, w] = await Promise.all([
+    list<InstalledApp>('appstore:view', '/nodes/local/appstore/installed'),
+    list<Website>('website:view', '/nodes/local/websites/sites'),
+  ])
+  apps.value = a
+  sites.value = w
   showForm.value = true
-  if (session.has('appstore:view')) {
-    try {
-      apps.value = await api.get<InstalledApp[]>('/nodes/local/appstore/installed')
-    } catch {
-      apps.value = []
-    }
-  }
-  if (session.has('website:view')) {
-    try {
-      sites.value = await api.get<Website[]>('/nodes/local/websites/sites')
-    } catch {
-      sites.value = []
-    }
-  }
 }
 
 async function save() {

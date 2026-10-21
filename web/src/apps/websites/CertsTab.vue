@@ -232,7 +232,7 @@ const columns = computed<DataTableColumns<Certificate>>(() => [
         props.canManage && (c.source === 'acme' || c.source === 'certbot')
           ? h(NButton, { size: 'tiny', secondary: true, disabled: c.busy, onClick: () => issue(c), 'data-testid': 'cert-issue-' + c.id }, () => (c.status === 'valid' ? t('certs.renew') : t('certs.issue')))
           : null,
-        h(NDropdown, { trigger: 'click', options: moreOptions(c), onSelect: (k: string) => onMore(c, k) }, () => h(NButton, { size: 'tiny', quaternary: true }, () => '…')),
+        h(NDropdown, { trigger: 'click', options: moreOptions(c), onSelect: (k: string) => onMore(c, k) }, () => h(NButton, { size: 'tiny', quaternary: true, 'data-testid': 'cert-more-' + c.id }, () => '…')),
       ]),
   },
 ])
@@ -317,7 +317,7 @@ async function migrate(x: ExternalCert) {
         <NButton size="small" quaternary @click="openExternal">{{ t('certs.external') }}</NButton>
         <NButton size="small" quaternary @click="showAccounts = true">{{ t('certs.accounts') }}</NButton>
         <NButton size="small" quaternary @click="(email = settings?.email ?? ''), (showSettings = true)">{{ t('certs.settings') }}</NButton>
-        <NButton size="small" @click="openUpload()">{{ t('certs.upload') }}</NButton>
+        <NButton size="small" data-testid="cert-upload" @click="openUpload()">{{ t('certs.upload') }}</NButton>
         <NButton size="small" type="primary" data-testid="cert-apply" @click="openApply()">{{ t('certs.apply') }}</NButton>
       </template>
     </div>
@@ -367,10 +367,10 @@ async function migrate(x: ExternalCert) {
     <NModal v-model:show="showUpload" preset="card" :title="upload.id ? t('certs.replace') : t('certs.upload')" style="width: 640px; max-width: calc(100vw - 32px)">
       <NForm label-placement="top" size="small">
         <NFormItem :label="t('certs.certPem')">
-          <NInput v-model:value="upload.cert" type="textarea" class="code" :autosize="{ minRows: 5, maxRows: 10 }" placeholder="-----BEGIN CERTIFICATE-----" />
+          <NInput v-model:value="upload.cert" type="textarea" class="code" :autosize="{ minRows: 5, maxRows: 10 }" placeholder="-----BEGIN CERTIFICATE-----" data-testid="cert-pem" />
         </NFormItem>
         <NFormItem :label="t('certs.keyPem')">
-          <NInput v-model:value="upload.key" type="textarea" class="code" :autosize="{ minRows: 5, maxRows: 10 }" placeholder="-----BEGIN PRIVATE KEY-----" />
+          <NInput v-model:value="upload.key" type="textarea" class="code" :autosize="{ minRows: 5, maxRows: 10 }" placeholder="-----BEGIN PRIVATE KEY-----" data-testid="key-pem" />
         </NFormItem>
         <NFormItem :label="t('websites.remark')">
           <NInput v-model:value="upload.remark" maxlength="128" />
@@ -379,7 +379,7 @@ async function migrate(x: ExternalCert) {
       <template #footer>
         <div class="foot">
           <NButton @click="showUpload = false">{{ t('common.cancel') }}</NButton>
-          <NButton type="primary" :disabled="!upload.cert.trim() || !upload.key.trim()" @click="doUpload">{{ t('common.save') }}</NButton>
+          <NButton type="primary" :disabled="!upload.cert.trim() || !upload.key.trim()" data-testid="cert-upload-ok" @click="doUpload">{{ t('common.save') }}</NButton>
         </div>
       </template>
     </NModal>

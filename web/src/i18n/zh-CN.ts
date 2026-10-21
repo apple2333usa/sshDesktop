@@ -1461,7 +1461,7 @@ export default {
     switchingHint: '如果新地址打不开，等待倒计时结束后仍可通过原地址 {old} 访问',
     goNew: '打开新地址',
     confirmedTitle: '访问方式已切换',
-    confirmedText: '面板现在通过 {url} 访问，请重新登录',
+    confirmedText: '面板现在通过 {url} 访问。如果还没有登录，请在这里重新登录。',
     confirmFailed: '确认失败',
   },
   firewall: {
@@ -1535,7 +1535,7 @@ export default {
     account: '账号',
     addKey: '添加密钥',
     addKeyFor: '为 {user} 添加授权密钥',
-    addKeyHint: '粘贴公钥（例如 ssh-ed25519 AAAA… user@host），一行一个',
+    addKeyHint: "粘贴公钥（例如 ssh-ed25519 AAAA… user{'@'}host），一行一个",
     keyType: '类型',
     keyComment: '注释',
     fingerprint: '指纹',

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 新建 / 修改站点。保存时由服务器生成配置、用 nginx -t 校验后重新加载，校验失败不会改动现有配置。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NButton, NCheckbox, NCollapseTransition, NForm, NFormItem, NInput, NInputNumber, NModal, NRadioButton, NRadioGroup, NSelect, NSwitch, useMessage,
@@ -25,6 +25,13 @@ const form = ref<Partial<Website>>({
   ...props.site,
 })
 const isRaw = computed(() => !!form.value.raw?.trim())
+// 未启用 HTTPS 的站点保存时会清掉强制 HTTPS 等选项，重新打开 HTTPS 时恢复默认值
+watch(
+  () => form.value.https,
+  (on) => {
+    if (on && !props.site.https) Object.assign(form.value, { forceHttps: true, http2: true })
+  },
+)
 
 const certs = ref<Certificate[]>([])
 async function loadCerts() {

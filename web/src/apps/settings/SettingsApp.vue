@@ -13,6 +13,7 @@ import { useSession } from '@/stores/session'
 import { wallpapers, wallpaperCSS } from '@/theme/wallpapers'
 import { errorText, formatDuration, formatTime } from '@/i18n'
 import SdIcon from '@/components/SdIcon.vue'
+import PanelAccess from './PanelAccess.vue'
 
 const host = useAppHost()
 const { t } = useI18n()
@@ -290,17 +291,8 @@ const snippets = computed({
             <NInputNumber v-model:value="rt.auditRetentionDays" :min="30" :max="3650" size="small" style="width: 140px"><template #suffix>{{ t('settings.days') }}</template></NInputNumber>
           </div>
         </div>
-        <div class="card">
-          <div class="title">{{ t('settings.network') }}</div>
-          <div class="sd-muted small">{{ t('settings.networkHint') }}</div>
-          <pre class="cmd sd-mono">sshdesktop config set port 33333
-sshdesktop config set domain panel.example.com
-sshdesktop config set https.cert /path/fullchain.pem
-sshdesktop config set https.key /path/privkey.pem
-sshdesktop config set https true
-systemctl restart sshdesktop</pre>
-        </div>
         <NButton type="primary" :loading="savingRt" data-testid="settings-save" @click="saveRuntime">{{ t('common.save') }}</NButton>
+        <PanelAccess />
       </template>
 
       <!-- 关于 -->

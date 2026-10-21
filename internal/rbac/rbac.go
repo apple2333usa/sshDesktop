@@ -40,6 +40,12 @@ const (
 	CronManage     = "cron:manage"
 	BackupView     = "backup:view"
 	BackupManage   = "backup:manage"
+	WebsiteView    = "website:view"
+	WebsiteManage  = "website:manage"
+	FirewallView   = "firewall:view"
+	FirewallManage = "firewall:manage"
+	SSHDView       = "sshd:view"
+	SSHDManage     = "sshd:manage"
 )
 
 // Catalog 是当前版本支持的全部权限点，顺序即界面展示顺序。
@@ -62,6 +68,12 @@ var Catalog = []Perm{
 	{Key: CronManage, Module: "cron", RootEquivalent: true},
 	{Key: BackupView, Module: "backup"},
 	{Key: BackupManage, Module: "backup", RootEquivalent: true},
+	{Key: WebsiteView, Module: "website"},
+	{Key: WebsiteManage, Module: "website", RootEquivalent: true},
+	{Key: FirewallView, Module: "firewall"},
+	{Key: FirewallManage, Module: "firewall"},
+	{Key: SSHDView, Module: "sshd"},
+	{Key: SSHDManage, Module: "sshd", RootEquivalent: true},
 	{Key: AuditView, Module: "audit"},
 	{Key: SystemPower, Module: "system"},
 	{Key: UsersManage, Module: "users", AdminOnly: true},
@@ -90,11 +102,12 @@ func Seed(db *gorm.DB) error {
 		perms []string
 	}{
 		{store.Role{Name: AdminRoleName, IsAdmin: true, Description: "全部权限，不可修改"}, nil},
-		{store.Role{Name: OpsRoleName, Description: "日常运维：监控、文件、终端、进程与服务、容器与应用、计划任务与备份"},
+		{store.Role{Name: OpsRoleName, Description: "日常运维：监控、文件、终端、进程与服务、容器与应用、计划任务与备份、网站"},
 			[]string{MonitorView, FilesView, FilesManage, TerminalUse, ProcessView, ProcessManage, AuditView, BatchRun, ProbeView, ProbeManage,
-				DockerView, DockerManage, AppstoreView, AppstoreManage, CronView, CronManage, BackupView, BackupManage}},
+				DockerView, DockerManage, AppstoreView, AppstoreManage, CronView, CronManage, BackupView, BackupManage,
+				WebsiteView, WebsiteManage, FirewallView, SSHDView}},
 		{store.Role{Name: ReadonlyRoleName, Description: "只能查看监控、文件和进程"},
-			[]string{MonitorView, FilesView, ProcessView, ProbeView, DockerView, AppstoreView, CronView, BackupView}},
+			[]string{MonitorView, FilesView, ProcessView, ProbeView, DockerView, AppstoreView, CronView, BackupView, WebsiteView, FirewallView, SSHDView}},
 	}
 	for _, s := range seeds {
 		var n int64

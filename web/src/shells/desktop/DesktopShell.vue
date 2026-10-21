@@ -15,8 +15,8 @@ import Toasts from './Toasts.vue'
 import DesktopIcons from './DesktopIcons.vue'
 import FileDialogs from '@/apps/explorer/FileDialogs.vue'
 
-useShellBoot()
 const desktop = useDesktop()
+useShellBoot((id) => desktop.open(id))
 const prefs = usePrefs()
 const session = useSession()
 

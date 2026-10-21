@@ -423,10 +423,16 @@ func (s *Service) validatePlan(req *planReq, old *store.BackupPlan) error {
 		if n == 0 {
 			return errors.New("请选择已安装的应用")
 		}
+	case "website":
+		var n int64
+		s.d.Store.DB.Model(&store.Website{}).Where("name = ?", p.Source).Count(&n)
+		if n == 0 {
+			return errors.New("请选择网站")
+		}
 	case "panel":
 		p.Source = ""
 	default:
-		return errors.New("备份类型只能是 dir、app 或 panel")
+		return errors.New("备份类型只能是 dir、app、website 或 panel")
 	}
 	if len(req.TargetIDs) == 0 {
 		return errors.New("请至少选择一个备份目标")

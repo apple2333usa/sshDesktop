@@ -709,6 +709,8 @@ type installedView struct {
 	External   bool     `json:"external"`
 	Containers []string `json:"containers"`
 	Busy       bool     `json:"busy"`
+	// Sites 是为这个应用创建的反向代理网站
+	Sites []string `json:"sites"`
 }
 
 func (s *Service) views(ctx context.Context, rows []store.AppInstalled) []installedView {
@@ -720,7 +722,11 @@ func (s *Service) views(ctx context.Context, rows []store.AppInstalled) []instal
 	}
 	out := make([]installedView, 0, len(rows))
 	for _, r := range rows {
-		v := installedView{AppInstalled: r, Icon: iconURL(r.Source, r.Key), Ports: []string{}, Upgrades: []string{}, Containers: []string{}}
+		v := installedView{AppInstalled: r, Icon: iconURL(r.Source, r.Key), Ports: []string{}, Upgrades: []string{}, Containers: []string{}, Sites: []string{}}
+		s.d.Store.DB.Model(&store.Website{}).Where("app_name = ?", r.Name).Order("id").Pluck("name", &v.Sites)
+		if v.Sites == nil {
+			v.Sites = []string{}
+		}
 		var sp storedParams
 		json.Unmarshal([]byte(r.Params), &sp)
 		v.External = sp.External

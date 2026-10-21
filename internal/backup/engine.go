@@ -39,6 +39,8 @@ type Engine struct {
 	Docker     *docker.Client
 	// Remote 返回 SFTP 目标所在节点的文件系统，用完调用返回的函数释放。
 	Remote func(ctx context.Context, nodeID string) (vfs.FS, func(), error)
+	// Sites 由网站模块提供，恢复网站备份时写回站点并重新生成配置；命令行执行的计划任务中为空（只备份不恢复）
+	Sites SiteRestorer
 
 	mu      sync.Mutex
 	running map[uint]bool
@@ -298,6 +300,8 @@ func describe(p store.BackupPlan) string {
 		return "目录 " + p.Source
 	case "app":
 		return "应用 " + p.Source
+	case "website":
+		return "网站 " + p.Source
 	}
 	return "面板数据"
 }
@@ -411,6 +415,36 @@ func (e *Engine) writeArchive(ctx context.Context, out io.Writer, plan store.Bac
 			}()
 		}
 		content = func(t *tarWriter) error { return t.addDir(ctx, row.Dir, "app", ex, log) }
+	case "website":
+		var site store.Website
+		if err := e.Store.DB.First(&site, "name = ?", plan.Source).Error; err != nil {
+			return 0, fmt.Errorf("网站 %s 不存在（可能已删除）", plan.Source)
+		}
+		rec := siteRecord{Site: site}
+		var cert store.Certificate
+		if site.HTTPS && site.CertID != 0 && e.Store.DB.First(&cert, site.CertID).Error == nil &&
+			regularFile(cert.CertPath) && regularFile(cert.KeyPath) {
+			rec.Cert = true
+		}
+		if site.Type == "static" && site.Raw == "" && dirExists(site.Root) {
+			rec.Files = true
+		}
+		m.Site, _ = json.Marshal(rec)
+		content = func(t *tarWriter) error {
+			if rec.Cert {
+				log("包含证书 %s", cert.Domains)
+				if err := t.addDir(ctx, cert.CertPath, "site/cert/fullchain.pem", nil, log); err != nil {
+					return err
+				}
+				if err := t.addDir(ctx, cert.KeyPath, "site/cert/privkey.pem", nil, log); err != nil {
+					return err
+				}
+			}
+			if rec.Files {
+				return t.addDir(ctx, site.Root, "site/files", ex, log)
+			}
+			return nil
+		}
 	case "panel":
 		db, err := e.dumpDB()
 		if err != nil {
@@ -433,6 +467,12 @@ func (e *Engine) writeArchive(ctx context.Context, out io.Writer, plan store.Bac
 					if err := t.addDir(ctx, cfg, "panel/config.yaml", nil, log); err != nil {
 						return err
 					}
+				}
+			}
+			// 面板申请和上传的证书
+			if d := filepath.Join(e.DataDir, "certs"); dirExists(d) {
+				if err := t.addDir(ctx, d, "panel/certs", nil, log); err != nil {
+					return err
 				}
 			}
 			if d := filepath.Join(e.DataDir, "compose"); dirExists(d) {
@@ -517,4 +557,21 @@ func checkDir(p string) error {
 		return fmt.Errorf("目录 %s 不存在", p)
 	}
 	return nil
+}
+
+// siteRecord 是网站备份中的站点信息：站点记录，以及备份包里是否有网站文件（静态网站）和证书。
+type siteRecord struct {
+	Site  store.Website `json:"site"`
+	Files bool          `json:"files"`
+	Cert  bool          `json:"cert"`
+}
+
+// SiteRestorer 写回网站记录、导入证书并重新生成配置，返回需要提示的警告。
+type SiteRestorer interface {
+	RestoreSite(ctx context.Context, w store.Website, cert, key []byte) (string, error)
+}
+
+func regularFile(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
 }

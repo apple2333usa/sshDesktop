@@ -39,6 +39,7 @@ function impact(s: RestoreSource): string[] {
   const out = [name.value]
   if (s.type === 'dir') out.push(t('backup.restoreDirImpact', { dir: where.value === 'other' ? dest.value : s.source || t('backup.originalDir') }))
   else if (s.type === 'app') out.push(t('backup.restoreAppImpact', { name: s.source }))
+  else if (s.type === 'website') out.push(t('backup.restoreSiteImpact', { name: s.source }))
   else if (s.type === 'panel') out.push(t('backup.restorePanelImpact'))
   else out.push(t('backup.restoreUnknownImpact'))
   out.push(noSnapshot.value ? t('backup.noSnapshotImpact') : t('backup.snapshotImpact'))
@@ -103,6 +104,7 @@ async function run() {
       </NFormItem>
       <NAlert v-if="source.type === 'panel'" type="warning" :bordered="false">{{ t('backup.panelRestoreWarn') }}</NAlert>
       <NAlert v-else-if="source.type === 'app'" type="info" :bordered="false">{{ t('backup.appRestoreHint') }}</NAlert>
+      <NAlert v-else-if="source.type === 'website'" type="info" :bordered="false">{{ t('backup.siteRestoreHint') }}</NAlert>
     </NForm>
     <template #footer>
       <div class="foot">

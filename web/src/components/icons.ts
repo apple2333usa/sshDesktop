@@ -118,6 +118,23 @@ export const fileIcons: Record<string, string> = {
     `${g('bkB', '#5b7cfa', '#3451d1')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#bkB)"/>` +
     `<path d="M15 33a7 7 0 0 1-.6-14A9 9 0 0 1 32 17.5a6.5 6.5 0 0 1 1 15.5z" fill="#fff"/>` +
     `<path d="M24 31v-9M20 25.5l4-4 4 4" stroke="#3451d1" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+  websites:
+    `${g('wsB', '#26a6d1', '#0b74a8')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#wsB)"/>` +
+    `<circle cx="24" cy="24" r="11" fill="none" stroke="#fff" stroke-width="2.6"/>` +
+    `<path d="M13 24h22M24 13c-4 3-5.5 7-5.5 11s1.5 8 5.5 11c4-3 5.5-7 5.5-11s-1.5-8-5.5-11z" stroke="#fff" stroke-width="2.4" fill="none"/>`,
+  firewall:
+    `${g('fwB', '#f06548', '#c4321c')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#fwB)"/>` +
+    `<g fill="#fff"><rect x="10" y="13" width="12" height="6" rx="1"/><rect x="24" y="13" width="14" height="6" rx="1"/>` +
+    `<rect x="10" y="21" width="6" height="6" rx="1"/><rect x="18" y="21" width="12" height="6" rx="1"/><rect x="32" y="21" width="6" height="6" rx="1"/>` +
+    `<rect x="10" y="29" width="12" height="6" rx="1"/><rect x="24" y="29" width="14" height="6" rx="1"/></g>`,
+  sshd:
+    `${g('shB', '#5f6b7a', '#343c47')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#shB)"/>` +
+    `<circle cx="18" cy="24" r="6" fill="none" stroke="#ffd54f" stroke-width="3"/>` +
+    `<path d="M24 24h14M33 24v5M37 24v4" stroke="#ffd54f" stroke-width="3" stroke-linecap="round"/>`,
+  inspect:
+    `${g('inB', '#7c5cf2', '#4b2fc4')}<rect x="4" y="6" width="40" height="36" rx="6" fill="url(#inB)"/>` +
+    `<path d="M13 16h12M13 23h9M13 30h7" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/>` +
+    `<circle cx="31" cy="27" r="6" fill="none" stroke="#fff" stroke-width="2.8"/><path d="M35.5 31.5l4 4" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`,
   folder: folder(),
   file: doc('#9e9e9e', ''),
   text: doc('#607d8b', label('TXT')),

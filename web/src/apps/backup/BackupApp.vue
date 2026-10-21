@@ -8,7 +8,7 @@ import {
 } from 'naive-ui'
 import { api, ApiError, Codes } from '@/api/http'
 import { triggerDownload } from '@/api/files'
-import type { BackupPlan, BackupRecord, BackupTarget, InstalledApp, Task } from '@/api/types'
+import type { BackupPlan, BackupRecord, BackupTarget, InstalledApp, Task, Website } from '@/api/types'
 import { useAppHost } from '@/apps/host'
 import { useSession } from '@/stores/session'
 import { useHost } from '@/stores/host'
@@ -154,18 +154,20 @@ const editing = ref<BackupPlan | null>(null)
 const form = ref<Form>(blank())
 const saving = ref(false)
 const apps = ref<InstalledApp[]>([])
+const sites = ref<Website[]>([])
 
 async function openForm(p?: BackupPlan) {
   editing.value = p ?? null
   form.value = p ? { ...p, password: '' } : { ...blank(), targetIds: targets.value.length === 1 ? [targets.value[0].id] : [] }
+  // 先取应用和网站列表再打开表单，避免表单打开后选项变化打断正在进行的选择
+  const list = <T,>(perm: string, url: string) => (session.has(perm) ? api.get<T[]>(url).catch(() => [] as T[]) : Promise.resolve([] as T[]))
+  const [a, w] = await Promise.all([
+    list<InstalledApp>('appstore:view', '/nodes/local/appstore/installed'),
+    list<Website>('website:view', '/nodes/local/websites/sites'),
+  ])
+  apps.value = a
+  sites.value = w
   showForm.value = true
-  if (session.has('appstore:view')) {
-    try {
-      apps.value = await api.get<InstalledApp[]>('/nodes/local/appstore/installed')
-    } catch {
-      apps.value = []
-    }
-  }
 }
 
 async function save() {
@@ -359,6 +361,7 @@ const recCols = computed<DataTableColumns<BackupRecord>>(() => [
           <NRadioGroup v-model:value="form.type" size="small">
             <NRadioButton value="dir">{{ typeLabel('dir') }}</NRadioButton>
             <NRadioButton value="app" :disabled="!apps.length">{{ typeLabel('app') }}</NRadioButton>
+            <NRadioButton value="website" :disabled="!sites.length">{{ typeLabel('website') }}</NRadioButton>
             <NRadioButton value="panel">{{ typeLabel('panel') }}</NRadioButton>
           </NRadioGroup>
         </NFormItem>
@@ -371,6 +374,12 @@ const recCols = computed<DataTableColumns<BackupRecord>>(() => [
         <NFormItem v-else-if="form.type === 'app'" :label="t('backup.app')" required>
           <NSelect v-model:value="form.source" :options="apps.map((a) => ({ label: `${a.title}（${a.name}）`, value: a.name }))" />
         </NFormItem>
+        <template v-else-if="form.type === 'website'">
+          <NFormItem :label="t('backup.website')" required>
+            <NSelect v-model:value="form.source" :options="sites.map((w) => ({ label: `${w.domains}（${w.name}）`, value: w.name }))" data-testid="plan-site" />
+          </NFormItem>
+          <NAlert type="info" :bordered="false" class="falert">{{ t('backup.websiteHint') }}</NAlert>
+        </template>
         <NAlert v-else type="info" :bordered="false" class="falert">{{ t('backup.panelHint') }}</NAlert>
         <NFormItem v-if="form.type !== 'panel'" :label="t('backup.excludes')">
           <div class="col">

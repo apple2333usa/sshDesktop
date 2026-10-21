@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 错误码按模块分段：1xxx 通用，2xxx 登录与账号，3xxx 文件，4xxx 终端，5xxx 进程与服务，6xxx 节点，7xxx Docker 与应用，8xxx 计划任务与备份。
+// 错误码按模块分段：1xxx 通用，2xxx 登录与账号，3xxx 文件，4xxx 终端，5xxx 进程与服务，6xxx 节点，7xxx Docker 与应用，8xxx 计划任务与备份，90xx 网站与证书，91xx 防火墙与 SSH。
 const (
 	CodeOK              = 0
 	CodeBadRequest      = 1001
@@ -54,6 +54,13 @@ const (
 
 	CodeCronUnavailable = 8001
 	CodeBackupFailed    = 8002
+
+	CodeWebServerMissing = 9001
+	CodeNginxTest        = 9002
+	CodeCertFailed       = 9003
+	CodeFirewallMissing  = 9101
+	CodePendingChange    = 9102
+	CodeSSHDTest         = 9103
 )
 
 type Error struct {

@@ -116,3 +116,73 @@
     - 保留 1 份时第二次备份删除了旧文件。
     - 测试后节点、凭据和主机密钥记录已删除，Linux 账号用 `userdel -r` 删除。
   - 测试数据、`restore-old-*` 目录、恢复出的 `config.yaml.from-backup` 和临时管理员都已清理，用户列表只剩 admin。
+
+## 2026-10-21 14:42 +08:00 · 0.4.0 · M4：网站与安全
+
+- 简介：实现设计文档里程碑 M4，P0 的四个里程碑至此全部完成。
+  - 网站：可以接管宿主机已有的 Nginx / OpenResty（只加一个 include，原有站点不变），或一键安装面板管理的 OpenResty 容器（`openresty/openresty:1.31.1.1-alpine`，主机网络）。
+    - 支持反向代理和静态网站，选项有多域名、HTTPS、强制跳转、HTTP/2、HSTS、WebSocket 和附加配置。
+    - 保存前用 `nginx -t` 校验，失败时还原。可以查看访问日志和错误日志。
+    - 结构简单的已有站点可以接管为面板站点（原文件备份，可以还原），其他的直接编辑原文件。
+    - 新增 Nginx 配置解析器 `internal/nginx`。
+  - 证书：基于 lego v5。
+    - CA 支持 Let's Encrypt（含测试环境）、ZeroSSL 和自定义 ACME 地址。
+    - 验证方式支持 HTTP，或通过 Cloudflare、阿里云、腾讯云 DNSPod 做 DNS 验证（可签通配符）。
+    - 到期前 30 天自动续期，也可以上传自有证书。
+    - 识别 certbot 和 acme.sh 的证书，certbot 证书可以迁移为面板续期。
+    - 下载私钥需要二级确认。
+  - 面板访问方式：在设置中切换仅本机 / 公网 HTTPS（域名 + 证书模块中的证书）或修改端口。
+    - 面板热切换监听，新地址带一次性令牌，在那里确认（不需要先登录），60 秒内没确认就恢复原配置。
+    - 证书续期后面板自动换用新证书。
+  - 防火墙：管理 ufw / firewalld 的全部规则。
+    - 启用防火墙、删除规则、添加拒绝规则走 60 秒确认，到时自动撤销；放行端口直接生效。
+    - SSH 和对外开放时的面板端口始终放行。
+    - 没有防火墙时可以一键安装，只有手写 iptables / nftables 规则时只读展示。
+    - 通用的“修改后限时确认”放在新增的 `internal/pending`，快照写入磁盘，面板在等待期间重启也会回滚。
+  - SSH 设置：
+    - 端口、密码登录、公钥登录和 root 登录写入 `sshd_config.d/00-sshdesktop.conf`。
+    - 保存前用 `sshd -t` 校验，再进入 60 秒确认；改端口时新旧端口同时监听，并自动放行防火墙。
+    - 可以管理各账号的授权密钥，查看登录记录和失败最多的来源。没有 systemd 时用 SIGHUP 重新加载。
+  - 环境体检：
+    - 检查 Web 服务、证书、Docker、防火墙、计划任务、SSH、端口和系统，每项可以直接打开对应应用。
+    - 管理员第一次登录时自动打开并运行。
+  - 补上 M3 留下的两项：
+    - 网站备份与恢复：配置、证书和静态文件，恢复时证书导入证书模块；面板备份也包含证书目录。
+    - 应用商店中为已安装应用一键创建反向代理网站，已安装列表显示关联的网站。
+  - 新增权限点 `website:*`、`firewall:*`、`sshd:*`，其中 `website:manage`、`sshd:manage` 标为等同 root。新装的“运维”“只读”角色模板包含相应权限；已有的角色不会自动获得，需要在“账号与权限”中手动勾选。
+  - 前端：
+    - 新增网站（站点、证书、已有站点）、防火墙、SSH 设置、环境体检四个应用，以及通用的“等待确认”提示条。
+    - 设置中加入“面板访问方式”，代替原来的命令行说明。
+    - 备份计划可以选择网站。
+    - 新增文案键完整性和可编译性的单元测试。
+  - 实测中发现并修正：
+    - 网站表的几个列名与 GORM 默认推断不一致，现在显式指定。
+    - 证书 HTTP 验证在 Nginx 重新加载完成前就开始，偶尔 404。现在先自己访问一次验证文件，确认可以访问再提交。
+    - 新地址没有登录状态，无法确认面板访问方式，因此改为一次性令牌。
+    - 解析器遇到 Lua 块中的引号会出错，改为惰性词法分析。
+    - 在未启用 HTTPS 的站点上打开 HTTPS 时，“强制 HTTPS”和 HTTP/2 默认是关闭的，现在默认打开。
+    - 授权密钥提示文案中的 `@` 让 vue-i18n 编译失败，导致“添加密钥”弹窗打不开。
+    - 备份计划表单打开后再加载应用和网站列表，会打断正在进行的选择，现在先加载再打开。
+- 对应文件：`internal/nginx/`、`internal/pending/`、`internal/module/website/`、`internal/module/cert/`、`internal/module/firewall/`、`internal/module/sshd/`、`internal/module/inspect/`、`internal/server/panel.go`、`internal/server/server.go`、`internal/config/config.go`、`internal/store/models.go`、`internal/rbac/rbac.go`、`internal/api/api.go`、`internal/backup/archive.go`、`internal/backup/engine.go`、`internal/backup/restore.go`、`internal/backup/backup_test.go`、`internal/module/backup/backup.go`、`internal/module/appstore/install.go`、`go.mod`、`go.sum`、`web/src/apps/websites/`、`web/src/apps/firewall/`、`web/src/apps/sshd/`、`web/src/apps/inspect/`、`web/src/apps/settings/PanelAccess.vue`、`web/src/apps/settings/SettingsApp.vue`、`web/src/apps/appstore/InstalledTab.vue`、`web/src/apps/backup/BackupApp.vue`、`web/src/apps/backup/RestoreDialog.vue`、`web/src/apps/backup/types.ts`、`web/src/apps/registry.ts`、`web/src/components/PendingBar.vue`、`web/src/components/AccessConfirm.vue`、`web/src/components/icons.ts`、`web/src/shells/common.ts`、`web/src/shells/desktop/DesktopShell.vue`、`web/src/shells/admin/AdminShell.vue`、`web/src/stores/notify.ts`、`web/src/App.vue`、`web/src/main.ts`、`web/src/api/types.ts`、`web/src/i18n/zh-CN.ts`、`web/src/i18n/keys.test.ts`、`web/e2e/m4.spec.ts`、`VERSION`、`web/package.json`、`web/package-lock.json`、`docs/design.md`、`README.md`、`docs/readme-history/README-v0.3.1-20261021-092500.md`
+- 验证与限制：
+  - 在云端容器（root，Ubuntu 24.04，nginx 1.24，ufw，firewalld，OpenSSH 9.6，Docker 29.9.1，用 pebble 作为本地 ACME 服务器）中运行：
+    - `go vet`、`go test ./...` 通过。新增测试覆盖：
+      - Nginx 解析
+      - 限时确认（确认、撤销、超时、重启后恢复）
+      - 站点配置生成（装有 nginx 时用 `nginx -t` 校验）
+      - 防火墙规则解析与安全判断、sshd 配置改写
+      - 证书导入去重、网站备份与恢复
+    - 新增模块的测试另以非 root 用户运行也通过。
+    - 全流程手工实测：
+      - 两种 Web 服务方式都试过。
+      - pebble 签发证书，HTTPS、HTTP/2 和 HSTS 生效。
+      - 面板访问方式的切换、超时回滚和重启回滚。
+      - ufw 与 firewalld 的规则和确认流程。
+      - SSH 改端口与回滚、证书上传与 certbot 迁移、体检。
+    - 前端类型检查、构建和 vitest 11 项通过。
+    - Playwright e2e 在全新面板上运行（`SD_M3=1 SD_M4=1 SD_NO_SYSTEMD=1`）：
+      - 桌面 9 项、手机 1 项、M3 4 项、M4 新增 5 项通过。
+      - M4 的 5 项是：建站并启用 HTTPS、防火墙规则、SSH 改端口后撤销与授权密钥、体检、切换面板端口后在新地址确认再切回。
+      - M3 的应用商店用例有一次因同步按钮与自动同步冲突而失败，单独重跑通过。它与本次改动无关，没有处理。
+      - 多服务器用例这次没有跑。
+  - DNS 验证没有用真实 DNS 服务商测试（按约定跳过）。还没有在测试服务器上实测，见下一条记录。

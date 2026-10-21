@@ -9,18 +9,28 @@ import { useSession } from '@/stores/session'
 import { useDesktop } from '@/stores/desktop'
 import { usePrefs } from '@/stores/prefs'
 import { apps, type AppManifest } from '@/apps/registry'
+import { api } from '@/api/http'
 
 let booted = false
 
-export function useShellBoot() {
+export function useShellBoot(openApp: (id: string) => void) {
   const host = useHost()
   const notify = useNotify()
   const nodes = useNodes()
+  const session = useSession()
   onMounted(async () => {
     notify.start()
     if (!booted) {
       booted = true
       await Promise.all([loadDesktopState(), host.load(), nodes.start()])
+      // 管理员第一次进入时还没有体检报告：打开环境体检，让管理员先了解服务器的现状
+      if (session.isAdmin) {
+        try {
+          if (!(await api.get('/nodes/local/inspect'))) openApp('inspect')
+        } catch {
+          /* 忽略 */
+        }
+      }
     }
   })
 }

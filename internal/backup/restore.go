@@ -86,6 +86,8 @@ func (e *Engine) Restore(ctx context.Context, req RestoreRequest, w io.Writer) (
 		return e.restoreApp(ctx, m, req, open, log)
 	case "panel":
 		return e.restorePanel(ctx, m, req, open, log)
+	case "website":
+		return e.restoreSite(ctx, m, req, open, log)
 	}
 	return nil, fmt.Errorf("不支持的备份类型：%s", m.Type)
 }
@@ -98,6 +100,8 @@ func typeName(t string) string {
 		return "应用"
 	case "panel":
 		return "面板数据"
+	case "website":
+		return "网站"
 	}
 	return t
 }
@@ -392,6 +396,73 @@ type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
+/* ---------- 网站 ---------- */
+
+// restoreSite 恢复网站：静态网站的文件替换回原目录，证书导入证书列表（相同的证书不重复导入），
+// 站点记录按名称覆盖或新建，然后重新生成配置并重新加载 Web 服务器。
+func (e *Engine) restoreSite(ctx context.Context, m Manifest, req RestoreRequest,
+	open func() (io.Reader, func(), error), log func(string, ...any)) (*RestoreResult, error) {
+	if e.Sites == nil {
+		return nil, errors.New("请在面板中恢复网站备份")
+	}
+	var rec siteRecord
+	if len(m.Site) == 0 || json.Unmarshal(m.Site, &rec) != nil || rec.Site.Name == "" {
+		return nil, errors.New("备份中的网站信息损坏")
+	}
+	w := rec.Site
+	res := &RestoreResult{Type: "website", Dest: w.Name}
+	var cert, key []byte
+	if rec.Cert {
+		dir, err := e.tmpDir()
+		if err != nil {
+			return nil, err
+		}
+		tmp, err := os.MkdirTemp(dir, "site-cert-*")
+		if err != nil {
+			return nil, err
+		}
+		defer os.RemoveAll(tmp)
+		r, done, err := open()
+		if err != nil {
+			return nil, err
+		}
+		_, _, err = extract(r, tmp, "site/cert")
+		done()
+		if err != nil {
+			return nil, err
+		}
+		cert, _ = os.ReadFile(filepath.Join(tmp, "fullchain.pem"))
+		key, _ = os.ReadFile(filepath.Join(tmp, "privkey.pem"))
+	}
+	if rec.Files {
+		root := filepath.Clean(w.Root)
+		if !filepath.IsAbs(root) || protectedDirs[root] {
+			return nil, fmt.Errorf("网站目录 %s 无效", w.Root)
+		}
+		res.Dest = root
+		if dirExists(root) && !req.NoSnapshot {
+			snap, err := e.snapshot(ctx, store.BackupPlan{Name: "恢复前快照", Type: "dir", Source: root}, log)
+			if err != nil {
+				return nil, err
+			}
+			res.Snapshot = snap
+		}
+		n, err := replaceDir(root, "site/files", open, log)
+		if err != nil {
+			return nil, err
+		}
+		res.Files = n
+		log("已恢复 %d 个网站文件到 %s", n, root)
+	}
+	warn, err := e.Sites.RestoreSite(ctx, w, cert, key)
+	if err != nil {
+		return res, fmt.Errorf("网站文件已恢复，但写入站点配置失败：%w", err)
+	}
+	res.Warning = warn
+	log("网站 %s 已恢复", w.Name)
+	return res, nil
+}
+
 /* ---------- 面板 ---------- */
 
 // PendingDir 是等待下次启动时应用的面板恢复数据。
@@ -486,7 +557,7 @@ func ApplyPendingPanelRestore(dataDir, configPath string) error {
 			os.Rename(p, filepath.Join(old, "sshdesktop.db"+suffix))
 		}
 	}
-	for _, name := range []string{"sshdesktop.db", "secret.key", "compose"} {
+	for _, name := range []string{"sshdesktop.db", "secret.key", "compose", "certs"} {
 		if err := move(name); err != nil {
 			return fmt.Errorf("应用面板恢复数据失败：%w", err)
 		}

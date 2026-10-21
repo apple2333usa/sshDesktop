@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,20 +27,26 @@ import (
 	"github.com/apple2333usa/sshdesktop/internal/module/appstore"
 	backupmod "github.com/apple2333usa/sshdesktop/internal/module/backup"
 	"github.com/apple2333usa/sshdesktop/internal/module/batch"
+	"github.com/apple2333usa/sshdesktop/internal/module/cert"
 	"github.com/apple2333usa/sshdesktop/internal/module/cron"
 	"github.com/apple2333usa/sshdesktop/internal/module/desktop"
 	dockermod "github.com/apple2333usa/sshdesktop/internal/module/docker"
 	"github.com/apple2333usa/sshdesktop/internal/module/files"
+	"github.com/apple2333usa/sshdesktop/internal/module/firewall"
+	"github.com/apple2333usa/sshdesktop/internal/module/inspect"
 	"github.com/apple2333usa/sshdesktop/internal/module/monitor"
 	"github.com/apple2333usa/sshdesktop/internal/module/nodes"
 	"github.com/apple2333usa/sshdesktop/internal/module/probe"
 	"github.com/apple2333usa/sshdesktop/internal/module/process"
 	"github.com/apple2333usa/sshdesktop/internal/module/service"
+	"github.com/apple2333usa/sshdesktop/internal/module/sshd"
 	"github.com/apple2333usa/sshdesktop/internal/module/system"
 	"github.com/apple2333usa/sshdesktop/internal/module/terminal"
 	"github.com/apple2333usa/sshdesktop/internal/module/traffic"
 	"github.com/apple2333usa/sshdesktop/internal/module/users"
+	"github.com/apple2333usa/sshdesktop/internal/module/website"
 	"github.com/apple2333usa/sshdesktop/internal/node"
+	"github.com/apple2333usa/sshdesktop/internal/pending"
 	"github.com/apple2333usa/sshdesktop/internal/rbac"
 	"github.com/apple2333usa/sshdesktop/internal/realtime"
 	"github.com/apple2333usa/sshdesktop/internal/secret"
@@ -72,8 +79,19 @@ type Server struct {
 	apps     *appstore.Service
 	cron     *cron.Service
 	backup   *backup.Engine
+	pending  *pending.Manager
+	website  *website.Service
+	certMod  *cert.Service
+	firewall *firewall.Service
+	sshd     *sshd.Service
 
-	engine *gin.Engine
+	engine  *gin.Engine
+	httpMu  sync.Mutex
+	srv     *http.Server
+	httpErr chan error
+	certs   certLoader
+	// accessToken 是面板访问方式切换后在新地址确认用的一次性令牌（只在内存中）
+	accessToken string
 }
 
 func New(cfg *config.Config, st *store.Store, version string, web fs.FS) (*Server, error) {
@@ -88,6 +106,7 @@ func New(cfg *config.Config, st *store.Store, version string, web fs.FS) (*Serve
 		hub:     realtime.NewHub(),
 		nodes:   node.NewRegistry(),
 		col:     agent.NewCollector(),
+		httpErr: make(chan error, 1),
 	}
 	s.tasks = task.NewManager(st, s.hub)
 	s.monitor = monitor.New(st, s.col, s.hub, s.nodes)
@@ -129,6 +148,25 @@ func New(cfg *config.Config, st *store.Store, version string, web fs.FS) (*Serve
 			st.DB.Model(&store.BackupPlan{}).Where("id = ?", id).Count(&n)
 			return n > 0
 		},
+	})
+	s.pending = pending.New(filepath.Join(cfg.DataDir, "pending"))
+	s.pending.Handle(panelPendingKind, pending.Handler{Restore: s.panelRestore, Done: s.pendingDone})
+	s.website = website.New(website.Deps{
+		Store: st, Tasks: s.tasks, Docker: s.docker, DataDir: cfg.DataDir, Confirm: s.confirm, Audit: s.audit.Action,
+	})
+	s.certMod = cert.New(cert.Deps{
+		Store: st, Tasks: s.tasks, Box: box, DataDir: cfg.DataDir, Version: version, Audit: s.audit.Action,
+		Confirm: s.confirm, Web: s.website, PanelCert: s.panelCertID, Notify: s.notifyAll,
+	})
+	s.website.SetCerts(s.certMod.Files, s.certMod.ImportFile, s.certMod.ImportPEM)
+	s.backup.Sites = s.website
+	s.firewall = firewall.New(firewall.Deps{
+		Pending: s.pending, Confirm: s.confirm, Audit: s.audit.Action, Tasks: s.tasks,
+		ProtectedPorts: s.protectedPorts, Done: s.pendingDone,
+	})
+	s.sshd = sshd.New(sshd.Deps{
+		Pending: s.pending, Confirm: s.confirm, Audit: s.audit.Action, Firewall: s.firewall, Done: s.pendingDone,
+		DataDir: cfg.DataDir,
 	})
 	s.terminal.AllowContainer = func(c *gin.Context) bool {
 		if !s.checker.Has(api.User(c).RoleID, rbac.DockerManage) {
@@ -227,6 +265,8 @@ func (s *Server) authorizeChannel(p *api.Principal, ch string) bool {
 		return true
 	case "batch":
 		return s.checker.Has(p.RoleID, rbac.BatchRun)
+	case "notify":
+		return true
 	case "probes", "probe-events":
 		return s.checker.Has(p.RoleID, rbac.ProbeView)
 	}
@@ -308,6 +348,16 @@ func (s *Server) routes() *gin.Engine {
 		Store: s.st, Tasks: s.tasks, Engine: s.backup, Cron: s.cron, Confirm: s.confirm, Audit: a, Restart: restart,
 	}).Register(local, s.perm(rbac.BackupView), s.perm(rbac.BackupManage))
 
+	s.website.Register(local, s.perm(rbac.WebsiteView), s.perm(rbac.WebsiteManage))
+	s.certMod.Register(local, s.perm(rbac.WebsiteView), s.perm(rbac.WebsiteManage))
+	s.firewall.Register(local, s.perm(rbac.FirewallView), s.perm(rbac.FirewallManage))
+	s.sshd.Register(local, s.perm(rbac.SSHDView), s.perm(rbac.SSHDManage))
+	inspect.New(inspect.Deps{
+		Store: s.st, Docker: s.docker, Website: s.website, Cert: s.certMod, Firewall: s.firewall, SSHD: s.sshd,
+		PanelPort: s.cfg.Port, DataDir: s.cfg.DataDir,
+	}).Register(local, s.perm(rbac.SettingsManage))
+	s.registerPanel(v1, s.perm(rbac.SettingsManage))
+
 	e.NoRoute(s.static)
 	return e
 }
@@ -358,34 +408,32 @@ func (s *Server) Run(ctx context.Context) error {
 			}
 		}()
 	}
-	srv := &http.Server{
-		Addr:              s.cfg.ListenAddr(),
-		Handler:           s.engine,
-		ReadHeaderTimeout: 15 * time.Second,
-		IdleTimeout:       120 * time.Second,
+	go s.certMod.Run(ctx)
+	if err := s.listen(); err != nil {
+		return err
 	}
-	errCh := make(chan error, 1)
-	go func() {
-		slog.Info("sshDesktop 已启动", "version", s.version, "listen", srv.Addr, "https", s.cfg.Public())
-		var err error
-		if s.cfg.Public() {
-			err = srv.ListenAndServeTLS(s.cfg.HTTPS.Cert, s.cfg.HTTPS.Key)
-		} else {
-			err = srv.ListenAndServe()
-		}
-		if !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-		close(errCh)
-	}()
 	select {
-	case err := <-errCh:
+	case err := <-s.httpErr:
 		return err
 	case <-ctx.Done():
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdown)
+	s.httpMu.Lock()
+	defer s.httpMu.Unlock()
+	return s.srv.Shutdown(shutdown)
+}
+
+// protectedPorts 返回改防火墙时必须保持放行的端口：SSH 端口，以及对外开放时的面板端口。
+func (s *Server) protectedPorts() map[int]string {
+	out := map[int]string{}
+	for _, p := range s.sshd.Ports() {
+		out[p] = "SSH"
+	}
+	if s.cfg.Public() {
+		out[s.cfg.Port] = "面板"
+	}
+	return out
 }
 
 // agentSocket 返回面板自带 agent 接口的 socket 路径；配置为 "-" 时不提供。

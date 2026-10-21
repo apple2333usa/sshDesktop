@@ -18,7 +18,7 @@ import SdIcon from '@/components/SdIcon.vue'
 import FileDialogs from '@/apps/explorer/FileDialogs.vue'
 import { formatTime } from '@/i18n'
 
-useShellBoot()
+useShellBoot((id) => go(id))
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()

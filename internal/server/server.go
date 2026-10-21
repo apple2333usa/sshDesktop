@@ -158,7 +158,8 @@ func New(cfg *config.Config, st *store.Store, version string, web fs.FS) (*Serve
 		Store: st, Tasks: s.tasks, Box: box, DataDir: cfg.DataDir, Version: version, Audit: s.audit.Action,
 		Web: s.website, PanelCert: s.panelCertID, Notify: s.notifyAll,
 	})
-	s.website.SetCerts(s.certMod.Files, s.certMod.ImportFile)
+	s.website.SetCerts(s.certMod.Files, s.certMod.ImportFile, s.certMod.ImportPEM)
+	s.backup.Sites = s.website
 	s.firewall = firewall.New(firewall.Deps{
 		Pending: s.pending, Confirm: s.confirm, Audit: s.audit.Action, Tasks: s.tasks,
 		ProtectedPorts: s.protectedPorts, Done: s.pendingDone,

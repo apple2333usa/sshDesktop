@@ -22,7 +22,7 @@ const ManifestName = ".sshdesktop-backup.json"
 
 type Manifest struct {
 	Format    int       `json:"format"`
-	Type      string    `json:"type"` // dir / app / panel
+	Type      string    `json:"type"` // dir / app / panel / website
 	Source    string    `json:"source"`
 	Plan      string    `json:"plan"`
 	Host      string    `json:"host"`
@@ -32,6 +32,8 @@ type Manifest struct {
 	KeyID string `json:"keyId,omitempty"`
 	// App 是应用备份时的安装记录（JSON），用于在新服务器上恢复
 	App json.RawMessage `json:"app,omitempty"`
+	// Site 是网站备份时的站点记录（siteRecord 的 JSON）
+	Site json.RawMessage `json:"site,omitempty"`
 }
 
 // tarWriter 包装 tar.Writer，统计写入的文件。

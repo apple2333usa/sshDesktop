@@ -502,3 +502,61 @@ func TestS3Storage(t *testing.T) {
 		t.Fatal("错误的密钥应失败")
 	}
 }
+
+type fakeSites struct {
+	got        store.Website
+	cert, key  []byte
+	calledWith int
+}
+
+func (f *fakeSites) RestoreSite(_ context.Context, w store.Website, cert, key []byte) (string, error) {
+	f.got, f.cert, f.key = w, cert, key
+	f.calledWith++
+	return "", nil
+}
+
+func TestWebsiteBackupRestore(t *testing.T) {
+	e := newEngine(t)
+	root := filepath.Join(t.TempDir(), "www", "blog")
+	writeTree(t, root, map[string]string{"index.html": "v1", "css/a.css": "css"})
+	certDir := t.TempDir()
+	os.WriteFile(filepath.Join(certDir, "fullchain.pem"), []byte("CERT"), 0o644)
+	os.WriteFile(filepath.Join(certDir, "privkey.pem"), []byte("KEY"), 0o600)
+	cert := store.Certificate{Domains: "blog.test", Source: "upload", CertPath: filepath.Join(certDir, "fullchain.pem"), KeyPath: filepath.Join(certDir, "privkey.pem")}
+	e.Store.DB.Create(&cert)
+	site := store.Website{Name: "blog", Type: "static", Domains: "blog.test", Root: root, HTTPS: true, CertID: cert.ID, Enabled: true}
+	e.Store.DB.Create(&site)
+	tgt := addTarget(t, e, "local", TargetConfig{Path: filepath.Join(t.TempDir(), "t")})
+	plan := store.BackupPlan{Name: "博客", Type: "website", Source: "blog", TargetIDs: joinUint(tgt.ID)}
+	e.Store.DB.Create(&plan)
+	ctx := context.Background()
+	var log bytes.Buffer
+	if err := e.RunPlan(ctx, plan.ID, "manual", &log); err != nil {
+		t.Fatalf("备份失败：%v\n%s", err, log.String())
+	}
+	var rec store.BackupRecord
+	e.Store.DB.Where("status = ?", "success").First(&rec)
+	if !strings.Contains(rec.Key, "website_blog_") {
+		t.Fatalf("文件名：%s", rec.Key)
+	}
+
+	if _, err := e.Restore(ctx, RestoreRequest{RecordID: rec.ID}, nil); err == nil {
+		t.Fatal("没有网站模块时应拒绝恢复")
+	}
+	fs := &fakeSites{}
+	e.Sites = fs
+	writeTree(t, root, map[string]string{"index.html": "v2", "new.txt": "x"})
+	res, err := e.Restore(ctx, RestoreRequest{RecordID: rec.ID}, &log)
+	if err != nil {
+		t.Fatalf("恢复失败：%v\n%s", err, log.String())
+	}
+	if got := readTree(t, root); len(got) != 2 || got["index.html"] != "v1" || got["css/a.css"] != "css" {
+		t.Fatalf("网站文件：%v", got)
+	}
+	if res.Snapshot == "" || res.Type != "website" {
+		t.Fatalf("%+v", res)
+	}
+	if fs.calledWith != 1 || fs.got.Name != "blog" || string(fs.cert) != "CERT" || string(fs.key) != "KEY" {
+		t.Fatalf("写回站点：%+v %q %q", fs.got, fs.cert, fs.key)
+	}
+}

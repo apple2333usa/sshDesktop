@@ -41,6 +41,8 @@ type Deps struct {
 	// CertFiles 返回证书的文件路径；ImportCert 把服务器上已有的证书文件登记为证书（接管已有站点时使用）
 	CertFiles  func(id uint) (cert, key string, err error)
 	ImportCert func(cert, key string) (uint, error)
+	// ImportPEM 导入证书内容（恢复网站备份时使用），已有相同证书时返回它
+	ImportPEM func(cert, key []byte, remark string) (uint, error)
 }
 
 type Service struct {
@@ -58,8 +60,9 @@ func New(d Deps) *Service {
 }
 
 // SetCerts 设置证书模块提供的函数（两个模块互相依赖，创建后再设置）。
-func (s *Service) SetCerts(files func(id uint) (string, string, error), importCert func(cert, key string) (uint, error)) {
-	s.d.CertFiles, s.d.ImportCert = files, importCert
+func (s *Service) SetCerts(files func(id uint) (string, string, error), importCert func(cert, key string) (uint, error),
+	importPEM func(cert, key []byte, remark string) (uint, error)) {
+	s.d.CertFiles, s.d.ImportCert, s.d.ImportPEM = files, importCert, importPEM
 }
 
 // SetPaths 仅用于测试：网站文件目录和宿主机 Nginx。
@@ -767,6 +770,37 @@ func (s *Service) conflict(w *store.Website) error {
 // Create 新建站点（应用商店创建反向代理时也用它）。
 func (s *Service) Create(ctx context.Context, w *store.Website) error {
 	return s.write(ctx, w, nil)
+}
+
+// RestoreSite 恢复网站备份中的站点：导入证书，按名称覆盖已有站点或新建，然后写入配置。
+func (s *Service) RestoreSite(ctx context.Context, w store.Website, cert, key []byte) (string, error) {
+	warn := ""
+	if w.HTTPS {
+		w.CertID = 0
+		if len(cert) > 0 && s.d.ImportPEM != nil {
+			id, err := s.d.ImportPEM(cert, key, "恢复网站 "+w.Name+" 时导入")
+			if err != nil {
+				return "", fmt.Errorf("导入证书失败：%w", err)
+			}
+			w.CertID = id
+		} else {
+			w.HTTPS, w.ForceHTTPS, w.HSTS = false, false, false
+			warn = "备份中没有证书，已关闭 HTTPS，请重新选择证书"
+		}
+	}
+	var cur store.Website
+	var old *store.Website
+	if s.d.Store.DB.First(&cur, "name = ?", w.Name).Error == nil {
+		w.ID, w.CreatedAt, w.TakeoverFrom, w.TakeoverBak = cur.ID, cur.CreatedAt, cur.TakeoverFrom, cur.TakeoverBak
+		old = &cur
+	} else {
+		// 原服务器上接管前的备份文件不在这台服务器上
+		w.ID, w.TakeoverBak = 0, ""
+	}
+	if err := s.write(ctx, &w, old); err != nil {
+		return "", err
+	}
+	return warn, nil
 }
 
 func (s *Service) write(ctx context.Context, w *store.Website, old *store.Website) error {

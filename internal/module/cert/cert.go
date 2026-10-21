@@ -4,10 +4,12 @@
 package cert
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -254,6 +256,44 @@ func (s *Service) ImportFile(certPath, keyPath string) (uint, error) {
 	row = store.Certificate{Source: "file", CertPath: certPath, KeyPath: keyPath, Remark: "服务器上已有的证书文件"}
 	applyInfo(&row, info)
 	return row.ID, s.d.Store.DB.Create(&row).Error
+}
+
+// ImportPEM 导入证书内容（恢复网站备份时使用）：已有相同证书时直接返回它，否则作为上传的证书保存。
+func (s *Service) ImportPEM(certPEM, keyPEM []byte, remark string) (uint, error) {
+	if _, err := ParsePair(certPEM, keyPEM); err != nil {
+		return 0, err
+	}
+	leaf := firstDER(certPEM)
+	var rows []store.Certificate
+	s.d.Store.DB.Find(&rows)
+	for _, r := range rows {
+		if b, err := os.ReadFile(r.CertPath); err == nil && leaf != nil && bytes.Equal(firstDER(b), leaf) {
+			return r.ID, nil
+		}
+	}
+	row := store.Certificate{Source: "upload", Remark: remark}
+	if err := s.d.Store.DB.Create(&row).Error; err != nil {
+		return 0, err
+	}
+	if err := s.writeFiles(&row, certPEM, keyPEM); err != nil {
+		s.d.Store.DB.Delete(&row)
+		return 0, err
+	}
+	return row.ID, nil
+}
+
+// firstDER 返回 PEM 中第一张证书的 DER 内容。
+func firstDER(b []byte) []byte {
+	for {
+		var blk *pem.Block
+		blk, b = pem.Decode(b)
+		if blk == nil {
+			return nil
+		}
+		if blk.Type == "CERTIFICATE" {
+			return blk.Bytes
+		}
+	}
 }
 
 /* ---------- 列表与增删改 ---------- */

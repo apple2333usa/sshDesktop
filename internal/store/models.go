@@ -341,6 +341,88 @@ type BackupRecord struct {
 	FinishedAt *time.Time `json:"finishedAt"`
 }
 
+// 网站与证书
+
+// Website 是面板管理的网站（配置文件由面板生成）。
+type Website struct {
+	ID      uint   `gorm:"primaryKey" json:"id"`
+	Name    string `gorm:"uniqueIndex;size:64;not null" json:"name"` // 配置文件名与目录名
+	Type    string `gorm:"size:16;not null" json:"type"`             // proxy / static
+	Domains string `gorm:"type:text" json:"domains"`                 // 空格分隔，第一个为主域名
+	// 反向代理：后端地址（http://127.0.0.1:8080）、发给后端的 Host、WebSocket
+	ProxyPass string `json:"proxyPass"`
+	ProxyHost string `gorm:"size:255" json:"proxyHost"` // 空为 $host
+	WebSocket bool   `json:"webSocket"`
+	// 静态站点的根目录、默认首页
+	Root      string `json:"root"`
+	Index     string `gorm:"size:128" json:"index"`
+	HTTPPort  int    `json:"httpPort"`
+	HTTPSPort int    `json:"httpsPort"`
+	HTTPS     bool   `json:"https"`
+	CertID    uint   `gorm:"index" json:"certId"`
+	// ForceHTTPS HTTP 跳转到 HTTPS；HSTS 仅在强制跳转时生效
+	ForceHTTPS bool   `json:"forceHttps"`
+	HTTP2      bool   `json:"http2"`
+	HSTS       bool   `json:"hsts"`
+	AccessLog  bool   `json:"accessLog"`
+	Custom     string `gorm:"type:text" json:"custom"` // 追加到 server 块中的自定义配置
+	// Raw 不为空时按原始配置写入，不由表单生成
+	Raw     string `gorm:"type:text" json:"raw"`
+	Enabled bool   `json:"enabled"`
+	AppName string `gorm:"size:64;index" json:"appName"` // 由应用商店应用创建的反向代理
+	// TakeoverFrom 是接管前原配置文件的位置（原文件已移到 takeover-backup，可还原）
+	TakeoverFrom string    `json:"takeoverFrom"`
+	TakeoverBak  string    `json:"-"`
+	Remark       string    `json:"remark"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+// Certificate 是证书：面板申请（acme）、上传（upload），或从 certbot 迁移来由面板续期（certbot）。
+type Certificate struct {
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	Domains   string `gorm:"type:text" json:"domains"` // 空格分隔
+	Source    string `gorm:"size:16" json:"source"`
+	CA        string `gorm:"size:32" json:"ca"`        // letsencrypt / letsencrypt-staging / zerossl / custom
+	CAURL     string `json:"caUrl"`                    // custom 时的 ACME 目录地址
+	Challenge string `gorm:"size:16" json:"challenge"` // http / dns
+	// DNSAccountID 为 DNS 验证使用的 DNS 账号
+	DNSAccountID uint       `json:"dnsAccountId"`
+	KeyType      string     `gorm:"size:16" json:"keyType"` // ec256 / ec384 / rsa2048 / rsa4096
+	AutoRenew    bool       `json:"autoRenew"`
+	CertPath     string     `json:"certPath"`
+	KeyPath      string     `json:"keyPath"`
+	Issuer       string     `json:"issuer"`
+	NotBefore    *time.Time `json:"notBefore"`
+	NotAfter     *time.Time `json:"notAfter"`
+	Status       string     `gorm:"size:16" json:"status"` // pending / applying / valid / failed
+	Error        string     `json:"error"`
+	// CertbotRenewal 是迁移前 certbot 的续期配置（已停用，可还原）
+	CertbotRenewal string    `json:"certbotRenewal"`
+	Remark         string    `json:"remark"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// DNSAccount 是 DNS 服务商账号（DNS-01 验证用），密钥加密保存。
+type DNSAccount struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"size:64;not null" json:"name"`
+	Provider  string    `gorm:"size:32;not null" json:"provider"`
+	Secret    []byte    `json:"-"` // 加密的 JSON 凭据
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// AcmeAccount 是 ACME 账号（每个 CA 一个），私钥加密保存。
+type AcmeAccount struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	CAURL        string    `gorm:"uniqueIndex" json:"caUrl"`
+	Email        string    `json:"email"`
+	Key          []byte    `json:"-"`
+	Registration string    `gorm:"type:text" json:"-"`
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
 func allModels() []any {
 	return []any{
 		&User{}, &Role{}, &RolePermission{}, &Session{}, &LoginAttempt{}, &IPBan{},
@@ -350,5 +432,6 @@ func allModels() []any {
 		&Probe{}, &ProbeResult{}, &Snippet{}, &BatchRun{}, &BatchResult{},
 		&ComposeProject{}, &AppInstalled{}, &CronJob{}, &CronRun{},
 		&BackupTarget{}, &BackupPlan{}, &BackupRecord{},
+		&Website{}, &Certificate{}, &DNSAccount{}, &AcmeAccount{},
 	}
 }

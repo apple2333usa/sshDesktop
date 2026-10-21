@@ -19,6 +19,8 @@ type HTTPS struct {
 	Enabled bool   `yaml:"enabled"`
 	Cert    string `yaml:"cert,omitempty"`
 	Key     string `yaml:"key,omitempty"`
+	// CertID 是在面板“证书”中选择的证书（Cert、Key 为它的文件路径），手动配置路径时为 0
+	CertID uint `yaml:"certId,omitempty"`
 }
 
 type Config struct {
@@ -161,9 +163,9 @@ func (c *Config) Set(key, value string) error {
 		}
 		c.HTTPS.Enabled = b
 	case "https.cert":
-		c.HTTPS.Cert = value
+		c.HTTPS.Cert, c.HTTPS.CertID = value, 0
 	case "https.key":
-		c.HTTPS.Key = value
+		c.HTTPS.Key, c.HTTPS.CertID = value, 0
 	case "log-level":
 		switch value {
 		case "debug", "info", "warn", "error":

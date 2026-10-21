@@ -47,6 +47,8 @@ type Deps struct {
 	DataDir string
 	Version string
 	Audit   func(module, action string) gin.HandlerFunc
+	// Confirm 是二级确认（下载私钥）
+	Confirm func(c *gin.Context) bool
 	Web     Web
 	// PanelCert 返回面板 HTTPS 正在使用的证书 ID（0 表示没有使用）
 	PanelCert func() uint
@@ -579,6 +581,9 @@ func (s *Service) delete(c *gin.Context) {
 func (s *Service) download(c *gin.Context) {
 	row, ok := s.row(c)
 	if !ok {
+		return
+	}
+	if s.d.Confirm != nil && !s.d.Confirm(c) {
 		return
 	}
 	cb, err := os.ReadFile(row.CertPath)

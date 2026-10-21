@@ -927,7 +927,12 @@ func (s *Service) delete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := s.Delete(c.Request.Context(), w, c.Query("files") == "1"); err != nil {
+	files := c.Query("files") == "1"
+	// 同时删除网站文件需要二级确认
+	if files && !s.d.Confirm(c) {
+		return
+	}
+	if err := s.Delete(c.Request.Context(), w, files); err != nil {
 		api.Fail(c, err)
 		return
 	}

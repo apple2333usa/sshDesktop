@@ -7,6 +7,9 @@ import { usePrefs } from '@/stores/prefs'
 import { useSession } from '@/stores/session'
 import { themeOverrides } from '@/theme/naive'
 import DangerDialog from '@/components/DangerDialog.vue'
+import AccessConfirm from '@/components/AccessConfirm.vue'
+
+defineProps<{ accessToken?: string }>()
 
 const prefs = usePrefs()
 const session = useSession()
@@ -30,6 +33,7 @@ setUnauthorizedHandler(() => {
         <NDialogProvider>
           <RouterView />
           <DangerDialog />
+          <AccessConfirm v-if="accessToken" :token="accessToken" />
         </NDialogProvider>
       </NNotificationProvider>
     </NMessageProvider>

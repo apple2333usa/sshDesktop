@@ -8,7 +8,7 @@ import {
 } from 'naive-ui'
 import { api, ApiError, Codes } from '@/api/http'
 import { triggerDownload } from '@/api/files'
-import type { BackupPlan, BackupRecord, BackupTarget, InstalledApp, Task } from '@/api/types'
+import type { BackupPlan, BackupRecord, BackupTarget, InstalledApp, Task, Website } from '@/api/types'
 import { useAppHost } from '@/apps/host'
 import { useSession } from '@/stores/session'
 import { useHost } from '@/stores/host'
@@ -154,6 +154,7 @@ const editing = ref<BackupPlan | null>(null)
 const form = ref<Form>(blank())
 const saving = ref(false)
 const apps = ref<InstalledApp[]>([])
+const sites = ref<Website[]>([])
 
 async function openForm(p?: BackupPlan) {
   editing.value = p ?? null
@@ -164,6 +165,13 @@ async function openForm(p?: BackupPlan) {
       apps.value = await api.get<InstalledApp[]>('/nodes/local/appstore/installed')
     } catch {
       apps.value = []
+    }
+  }
+  if (session.has('website:view')) {
+    try {
+      sites.value = await api.get<Website[]>('/nodes/local/websites/sites')
+    } catch {
+      sites.value = []
     }
   }
 }
@@ -359,6 +367,7 @@ const recCols = computed<DataTableColumns<BackupRecord>>(() => [
           <NRadioGroup v-model:value="form.type" size="small">
             <NRadioButton value="dir">{{ typeLabel('dir') }}</NRadioButton>
             <NRadioButton value="app" :disabled="!apps.length">{{ typeLabel('app') }}</NRadioButton>
+            <NRadioButton value="website" :disabled="!sites.length">{{ typeLabel('website') }}</NRadioButton>
             <NRadioButton value="panel">{{ typeLabel('panel') }}</NRadioButton>
           </NRadioGroup>
         </NFormItem>
@@ -371,6 +380,12 @@ const recCols = computed<DataTableColumns<BackupRecord>>(() => [
         <NFormItem v-else-if="form.type === 'app'" :label="t('backup.app')" required>
           <NSelect v-model:value="form.source" :options="apps.map((a) => ({ label: `${a.title}（${a.name}）`, value: a.name }))" />
         </NFormItem>
+        <template v-else-if="form.type === 'website'">
+          <NFormItem :label="t('backup.website')" required>
+            <NSelect v-model:value="form.source" :options="sites.map((w) => ({ label: `${w.domains}（${w.name}）`, value: w.name }))" data-testid="plan-site" />
+          </NFormItem>
+          <NAlert type="info" :bordered="false" class="falert">{{ t('backup.websiteHint') }}</NAlert>
+        </template>
         <NAlert v-else type="info" :bordered="false" class="falert">{{ t('backup.panelHint') }}</NAlert>
         <NFormItem v-if="form.type !== 'panel'" :label="t('backup.excludes')">
           <div class="col">

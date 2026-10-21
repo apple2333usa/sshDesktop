@@ -31,6 +31,7 @@ export const useNotify = defineStore('notify', () => {
   const waiters = new Map<string, ((t: Task) => void)[]>()
   let unsub: (() => void) | null = null
   let unsubProbe: (() => void) | null = null
+  let unsubNotice: (() => void) | null = null
 
   const unread = computed(() => list.value.filter((n) => !n.read).length)
   const running = computed(() => list.value.filter((n) => n.progress !== undefined && !n.done))
@@ -125,16 +126,24 @@ export const useNotify = defineStore('notify', () => {
     })
   }
 
+  // 服务端主动推送的通知（例如修改超时未确认已自动回滚）
+  function onNotice(ev: { level: NoticeType; title: string; body?: string }) {
+    push({ type: ev.level, title: ev.title, content: ev.body })
+  }
+
   function start() {
     if (!unsub) unsub = realtime.subscribe('tasks', onTask)
+    if (!unsubNotice) unsubNotice = realtime.subscribe('notify', onNotice)
     if (!unsubProbe && useSession().has('probe:view')) unsubProbe = realtime.subscribe('probe-events', onProbe)
   }
 
   function stop() {
     unsub?.()
     unsubProbe?.()
+    unsubNotice?.()
     unsub = null
     unsubProbe = null
+    unsubNotice = null
     list.value = []
     toasts.value = []
   }

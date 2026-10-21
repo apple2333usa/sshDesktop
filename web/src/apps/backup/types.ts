@@ -3,7 +3,7 @@ export interface RestoreSource {
   recordId?: number
   targetId?: number
   key: string
-  type?: 'dir' | 'app' | 'panel'
+  type?: 'dir' | 'app' | 'website' | 'panel'
   source?: string
   encrypted: boolean
   /** 计划里保存了密码，可以不填 */

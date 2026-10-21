@@ -156,7 +156,7 @@ func New(cfg *config.Config, st *store.Store, version string, web fs.FS) (*Serve
 	})
 	s.certMod = cert.New(cert.Deps{
 		Store: st, Tasks: s.tasks, Box: box, DataDir: cfg.DataDir, Version: version, Audit: s.audit.Action,
-		Web: s.website, PanelCert: s.panelCertID, Notify: s.notifyAll,
+		Confirm: s.confirm, Web: s.website, PanelCert: s.panelCertID, Notify: s.notifyAll,
 	})
 	s.website.SetCerts(s.certMod.Files, s.certMod.ImportFile, s.certMod.ImportPEM)
 	s.backup.Sites = s.website

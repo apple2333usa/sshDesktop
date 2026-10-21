@@ -121,6 +121,7 @@ function more(a: InstalledApp) {
   return [
     { label: t('docker.logs'), key: 'logs' },
     { label: t('appstore.openDir'), key: 'dir', disabled: !session.has('files:view') },
+    ...(session.has('website:manage') ? [{ label: t('appstore.createSite'), key: 'site', disabled: !a.ports.some((p) => /^\d+$/.test(p)) }] : []),
     ...(canManage.value
       ? [
           { label: t('appstore.params'), key: 'params', disabled: a.busy },
@@ -136,6 +137,7 @@ function more(a: InstalledApp) {
 function onMore(a: InstalledApp, key: string) {
   if (key === 'logs') logsOf.value = a
   else if (key === 'dir') host.openApp('explorer', { node: 'local', path: a.dir })
+  else if (key === 'site') host.openApp('websites', { create: { appName: a.name, port: a.ports.find((p) => /^\d+$/.test(p)), title: a.title } })
   else if (key === 'params') emit('params', a.name)
   else if (key === 'upgrade') openUpgrade(a)
   else if (key === 'uninstall') {
@@ -178,6 +180,7 @@ function portLink(a: InstalledApp, p: string) {
                 <span v-else class="sd-mono sd-muted">{{ t('appstore.localPort', { p }) }}</span>
               </template>
               <span v-if="!a.ports.length" class="sd-muted">{{ t('appstore.noPorts') }}</span>
+              <span v-if="a.sites.length" class="sd-muted">· {{ t('appstore.sites', { names: a.sites.join('，') }) }}</span>
               <span class="sd-muted">· {{ t('appstore.installedAt', { time: formatTime(a.createdAt) }) }}</span>
             </div>
             <NAlert v-if="a.message && (a.state === 'failed' || a.status === 'failed')" type="error" :bordered="false" class="msg">{{ a.message }}</NAlert>

@@ -581,6 +581,8 @@ export interface InstalledApp {
   ports: string[]
   icon: string
   upgrades: string[]
+  /** 为这个应用创建的反向代理网站 */
+  sites: string[]
   external: boolean
   containers: string[]
   busy: boolean
@@ -689,7 +691,7 @@ export interface BackupRecord {
   id: number
   planId: number
   planName: string
-  type: 'dir' | 'app' | 'panel'
+  type: 'dir' | 'app' | 'panel' | 'website'
   source: string
   targetId: number
   targetName: string
@@ -706,7 +708,7 @@ export interface BackupRecord {
 export interface BackupPlan {
   id: number
   name: string
-  type: 'dir' | 'app' | 'panel'
+  type: 'dir' | 'app' | 'panel' | 'website'
   source: string
   excludes: string
   encrypt: boolean
@@ -726,4 +728,272 @@ export interface BackupObject {
   modified: string
   recordId?: number
   encrypted: boolean
+}
+
+/* ---------- 网站与证书 ---------- */
+
+export interface NginxRuntime {
+  mode: 'host' | 'container'
+  binary: string
+  flavor: string
+  version: string
+  conf: string
+  siteDir: string
+  logDir: string
+  container?: string
+  composeDir?: string
+}
+
+export interface WebRuntimeStatus {
+  mode: '' | 'host' | 'container'
+  hostBinary: string
+  runtime?: NginxRuntime
+  running: boolean
+  error?: string
+  docker: boolean
+  ports: Record<string, string>
+  sites: number
+  included: boolean
+}
+
+export interface Website {
+  id: number
+  name: string
+  type: 'proxy' | 'static'
+  domains: string
+  proxyPass: string
+  proxyHost: string
+  webSocket: boolean
+  root: string
+  index: string
+  httpPort: number
+  httpsPort: number
+  https: boolean
+  certId: number
+  forceHttps: boolean
+  http2: boolean
+  hsts: boolean
+  accessLog: boolean
+  custom: string
+  raw: string
+  enabled: boolean
+  appName: string
+  takeoverFrom: string
+  remark: string
+  createdAt: string
+  updatedAt: string
+  file?: string
+  certName?: string
+  certEnd?: string | null
+}
+
+export interface ExistingServer {
+  file: string
+  line: number
+  names: string[]
+  listen: string[]
+  ssl: boolean
+  root?: string
+  proxyPass?: string
+  redirect?: string
+  cert?: string
+  simple: boolean
+  reasons: string[]
+  certbot: boolean
+  defaultSite: boolean
+}
+
+export interface ExistingFile {
+  path: string
+  servers: ExistingServer[]
+  takeover?: Website
+  reason?: string
+  error?: string
+}
+
+export interface Certificate {
+  id: number
+  domains: string
+  source: 'acme' | 'upload' | 'file' | 'certbot'
+  ca: string
+  caUrl: string
+  challenge: 'http' | 'dns' | ''
+  dnsAccountId: number
+  keyType: string
+  autoRenew: boolean
+  certPath: string
+  keyPath: string
+  issuer: string
+  notBefore: string | null
+  notAfter: string | null
+  status: 'pending' | 'applying' | 'valid' | 'failed' | 'expired' | string
+  error: string
+  remark: string
+  createdAt: string
+  sites: string[]
+  panel: boolean
+  busy: boolean
+  daysLeft: number
+}
+
+export interface DNSProvider {
+  key: string
+  name: string
+  fields: string[]
+}
+
+export interface CertSettings {
+  email: string
+  cas: Record<string, string>
+  dnsProviders: DNSProvider[]
+}
+
+export interface DNSAccount {
+  id: number
+  name: string
+  provider: string
+  createdAt: string
+  keys: string[]
+}
+
+export interface ExternalCert {
+  tool: 'certbot' | 'acme.sh'
+  name: string
+  cert: string
+  key: string
+  renewal?: string
+  info?: { domains: string[]; issuer: string; notBefore: string; notAfter: string }
+  error?: string
+  migrated: boolean
+  notes: string[]
+}
+
+/* ---------- 等待确认的修改 ---------- */
+
+export interface PendingChange {
+  id: string
+  kind: 'panel' | 'firewall' | 'sshd' | string
+  title: string
+  detail: string[]
+  userId: number
+  username: string
+  started: string
+  deadline: string
+  extra?: Record<string, unknown>
+}
+
+/* ---------- 防火墙 ---------- */
+
+export interface FirewallRule {
+  id: string
+  action: 'allow' | 'deny' | 'reject' | 'limit' | string
+  port: string
+  proto: string
+  source: string
+  family: string
+  service?: string
+  comment?: string
+  raw: string
+  editable: boolean
+  direction?: string
+}
+
+export interface FirewallStatus {
+  backend: 'ufw' | 'firewalld' | 'none'
+  active: boolean
+  version?: string
+  zone?: string
+  default?: string
+  rules: FirewallRule[]
+  raw?: string
+  rawTool?: string
+  installed?: string[]
+  notes?: string[]
+}
+
+export interface FirewallInfo {
+  status: FirewallStatus
+  protected: Record<string, string>
+  pending?: PendingChange
+}
+
+/* ---------- SSH ---------- */
+
+export interface SshdEffective {
+  ports: number[]
+  listenAddresses: string[]
+  passwordAuth: boolean
+  permitRootLogin: string
+  pubkeyAuth: boolean
+  kbdInteractive: boolean
+}
+
+export interface SshdStatus {
+  installed: boolean
+  version: string
+  service: string
+  active: boolean
+  socket: boolean
+  effective?: SshdEffective
+  error?: string
+  files: string[]
+  managed: string
+  included: boolean
+  notes: string[]
+}
+
+export interface SshKey {
+  line: number
+  type: string
+  comment: string
+  fingerprint: string
+  options?: string
+  error?: string
+}
+
+export interface SysUser {
+  name: string
+  uid: number
+  gid: number
+  home: string
+}
+
+export interface SshLogin {
+  time: string
+  success: boolean
+  user: string
+  ip: string
+  port: string
+  method: string
+  invalid: boolean
+}
+
+/* ---------- 环境体检 ---------- */
+
+export interface InspectItem {
+  key: string
+  title: string
+  state: 'managed' | 'partial' | 'unmanaged' | 'info' | 'warning'
+  summary: string
+  notes: string[]
+  actions: string[]
+  app?: string
+}
+
+export interface InspectReport {
+  at: string
+  items: InspectItem[]
+}
+
+/* ---------- 面板访问方式 ---------- */
+
+export interface PanelAccess {
+  https: boolean
+  domain: string
+  certId: number
+  port: number
+  listen: string
+  public: boolean
+  certPath: string
+  pending?: PendingChange
 }

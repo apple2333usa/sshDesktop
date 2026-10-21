@@ -109,6 +109,12 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
+	// 在原文件上只改值，保留用户写的注释和顺序
+	if old, err := os.ReadFile(c.path); err == nil {
+		if merged, err := mergeYAML(old, b); err == nil {
+			b = merged
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o755); err != nil {
 		return err
 	}
@@ -201,6 +207,65 @@ func (c *Config) Unset(key string) error {
 		c.AgentSocket = ""
 	default:
 		return fmt.Errorf("配置项 %q 不支持 unset", key)
+	}
+	return nil
+}
+
+// mergeYAML 把 next 中的值写进 old 的文档结构：已有的键原位替换值（保留键上的注释和行尾注释），
+// 新增的键追加在末尾，next 中没有的键删除。
+func mergeYAML(old, next []byte) ([]byte, error) {
+	var o, n yaml.Node
+	if err := yaml.Unmarshal(old, &o); err != nil {
+		return nil, err
+	}
+	if err := yaml.Unmarshal(next, &n); err != nil {
+		return nil, err
+	}
+	if len(o.Content) != 1 || len(n.Content) != 1 || o.Content[0].Kind != yaml.MappingNode || n.Content[0].Kind != yaml.MappingNode {
+		return nil, errors.New("不是映射")
+	}
+	mergeMapping(o.Content[0], n.Content[0])
+	var buf strings.Builder
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&o); err != nil {
+		return nil, err
+	}
+	enc.Close()
+	return []byte(buf.String()), nil
+}
+
+func mergeMapping(o, n *yaml.Node) {
+	var out []*yaml.Node
+	used := map[string]bool{}
+	for i := 0; i+1 < len(o.Content); i += 2 {
+		k, v := o.Content[i], o.Content[i+1]
+		nv := lookup(n, k.Value)
+		if nv == nil {
+			continue // 新配置里已经没有这个键（例如 omitempty 的空值）
+		}
+		used[k.Value] = true
+		if v.Kind == yaml.MappingNode && nv.Kind == yaml.MappingNode {
+			mergeMapping(v, nv)
+		} else {
+			nv.HeadComment, nv.LineComment, nv.FootComment = v.HeadComment, v.LineComment, v.FootComment
+			v = nv
+		}
+		out = append(out, k, v)
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if !used[n.Content[i].Value] {
+			out = append(out, n.Content[i], n.Content[i+1])
+		}
+	}
+	o.Content = out
+}
+
+func lookup(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
 	}
 	return nil
 }

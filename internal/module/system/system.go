@@ -30,7 +30,10 @@ type Deps struct {
 	IsAdmin   func(c *gin.Context) bool
 }
 
-type Service struct{ d Deps }
+type Service struct {
+	d       Deps
+	release releaseCache
+}
 
 func New(d Deps) *Service { return &Service{d: d} }
 
@@ -43,6 +46,8 @@ func (s *Service) Register(r *gin.RouterGroup, g Guards) {
 	r.POST("/system/power/:action", g.Power, s.d.Audit("system", "power"), s.power)
 	r.GET("/settings", g.Login, s.getSettings)
 	r.PUT("/settings", g.Settings, s.d.Audit("settings", "update"), s.putSettings)
+	r.GET("/system/upgrade", g.Settings, s.upgradeStatus)
+	r.POST("/system/upgrade", g.Settings, s.d.Audit("settings", "upgrade"), s.upgradeStart)
 	r.GET("/audit", g.AuditView, s.auditList)
 	r.GET("/audit/export", g.AuditView, s.auditExport)
 	r.GET("/tasks", g.Login, s.tasks)

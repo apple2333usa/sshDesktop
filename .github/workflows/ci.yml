@@ -63,3 +63,22 @@ jobs:
         with:
           name: sshdesktop-binaries
           path: dist/
+
+  distros:
+    name: 发行版集成测试（${{ matrix.distro }}）
+    runs-on: ubuntu-24.04
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [ubuntu22, ubuntu24, ubuntu26, debian12, debian13, rocky9, rocky10, alma9, alma10]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: sshdesktop-binaries
+          path: dist
+      - name: 安装、命令行、升级、一键安装 Docker、卸载
+        run: |
+          chmod +x dist/sshdesktop-linux-amd64
+          scripts/test-distros.sh dist/sshdesktop-linux-amd64 --docker ${{ matrix.distro }}

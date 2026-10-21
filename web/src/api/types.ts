@@ -998,3 +998,24 @@ export interface PanelAccess {
   certPath: string
   pending?: PendingChange
 }
+
+export interface ReleaseInfo {
+  tag: string
+  name: string
+  url: string
+  notes: string
+  published: string
+}
+
+export interface UpgradeStatus {
+  current: string
+  latest: ReleaseInfo | null
+  available?: boolean
+  error: string
+  checkedAt: string
+  releases: string
+  /** 不能在面板中升级的原因，空表示可以 */
+  unsupported: string
+  running: boolean
+  log?: string
+}

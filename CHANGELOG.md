@@ -231,3 +231,31 @@
   - SSH 改端口后撤销，日志记为“修改已撤销”，5522 端口始终可用。
   - `sshdesktop user delete`：不存在的账号报错并以 1 退出；删除临时管理员后其会话立即失效。
   - 测试数据已清理：站点、证书、OpenResty（容器、镜像、目录、设置）、临时管理员和服务器上的临时目录都已删除，空的 `/var/www`、`/var/lib/sshdesktop/certs` 一并删除。SSH 配置、`authorized_keys`、`config.yaml` 与测试前一致，iptables 规则（去掉计数后）一致，1Panel 和 fail2ban 没有改动。
+
+## 2026-10-21 20:20 +08:00 · 0.5.0 · M5：稳定化
+
+- 简介：M5 做发布 v1.0.0 前的稳定化：补测试、补齐设计中尚未实现的面板内升级，并修复测试中发现的问题。本版本先在测试服务器上实测并由用户验收，通过后发布 v1.0.0。
+  - 面板内一键升级：“设置 → 关于”显示当前版本和 GitHub 上的最新版本、更新说明，二级确认后升级。后端用 `systemd-run` 在独立的 `sshdesktop-upgrade` 单元里执行 `sshdesktop upgrade`，流程与命令行相同（下载 → 校验 → 备份 → 替换 → 重启 → 健康检查，失败自动回滚）。这样重启面板时，升级进程不会随面板的 cgroup 一起被结束。前端轮询健康检查，版本变化后刷新页面；升级没有完成时显示升级日志（`<数据目录>/upgrade.log`）。面板不是由 systemd 运行时提示改用命令行。
+  - 管理员登录后，如果有新版本就提醒一次（每个版本、每个浏览器只提醒一次）。最新版本的查询结果缓存 6 小时。GitHub 接口限流时，改从发布页的重定向取版本号；命令行 `sshdesktop upgrade` 也用同样的办法。
+  - 升级备份（`upgrade-backup/`）只保留最近 3 次的旧二进制和数据库，此前每次都会累积。
+  - `sshdesktop config set/unset` 以及面板访问方式切换时，保留 `config.yaml` 里的注释和键顺序，只改动相应的值。
+  - 安装脚本：结尾读取 SSH 端口时，`awk ... exit` 提前退出会让 `sshd -T` 收到 SIGPIPE，在 `pipefail` 下整个脚本中止，导致不打印初始管理员密码（面板已经装好并在运行）。这个问题偶发，取决于时序，在 Ubuntu 22.04 容器里能稳定复现。现在 awk 读完全部输入；获取最新版本号时也去掉了 `grep -m1` 的同类问题，并在版本号为空时报错。
+  - 一键安装 Docker：Docker 官方脚本在 Rocky Linux 上改用专属软件源，目前那里没有 docker-ce，导致安装失败。在 RHEL 系上官方脚本失败时，改用 Docker 官方的 CentOS 软件源安装。
+  - 应用商店：启动时会自动同步应用源；在同步进行中手动点“同步”会直接报“正在同步中”，这样刚添加的源不会被同步（e2e 偶发失败的原因）。现在手动同步会等正在进行的同步结束后再同步一次。
+  - 新增发行版集成测试 `scripts/test-distros.sh`，并加入 CI，9 个发行版并行跑：
+    - 在 Ubuntu 22.04 / 24.04 / 26.04、Debian 12 / 13、Rocky / Alma 9 / 10 的 systemd 容器里依次测试：安装脚本（`--binary`）、只监听本机、登录与各模块接口。
+    - 命令行：增删账号、改端口并重启、配置注释保留。
+    - 本地文件升级、重复运行安装脚本时的提示、一键安装 Docker（`--docker`），最后 `uninstall --purge`。
+  - 依赖：quic-go 0.59.0 → 0.59.1（修复 GO-2026-5676，经 gin 间接引入）、golang.org/x/net 0.61.0、vite 8.3.5。govulncheck 不再报告受影响的调用；`npm audit` 为 0。
+  - e2e：多服务器用例中“每月 15 日重置”的断言已经过时（没装 agent 的服务器不显示卡片），改为检查周期从 15 日开始；新增 `e2e/m5.spec.ts`（设置中的升级卡片）。
+- 对应文件：`internal/module/system/upgrade.go`、`internal/module/system/upgrade_test.go`、`internal/module/system/system.go`、`cmd/sshdesktop/upgrade.go`、`cmd/sshdesktop/cli_test.go`、`internal/config/config.go`、`internal/config/config_test.go`、`internal/module/appstore/appstore.go`、`internal/module/appstore/appstore_test.go`、`internal/module/docker/install.go`、`scripts/install.sh`、`scripts/test-distros.sh`、`.github/workflows/ci.yml`、`web/src/apps/settings/PanelUpgrade.vue`、`web/src/apps/settings/SettingsApp.vue`、`web/src/shells/common.ts`、`web/src/api/types.ts`、`web/src/i18n/zh-CN.ts`、`web/e2e/servers.spec.ts`、`web/e2e/m5.spec.ts`、`go.mod`、`go.sum`、`VERSION`、`web/package.json`、`web/package-lock.json`、`docs/design.md`、`README.md`、`docs/readme-history/README-v0.4.1-20261021-163400.md`
+- 验证与限制：
+  - 云端容器中 `go vet`、`go test ./...` 通过。新增的测试：
+    - 版本比较、最新版本缓存，以及接口失败时改从重定向取版本号。
+    - 升级备份清理、配置注释保留。
+    - 同步进行中再次手动同步时会等待。
+  - 前端类型检查和 vitest 11 项通过。
+  - Playwright e2e（`SD_M3=1 SD_M4=1 SD_NO_SYSTEMD=1`，多服务器用例用本机 sshd）27 项全部通过。M3 的 Docker 用例第一次因 Docker Hub 限流（429）拉不到 `alpine:3`，换镜像源预先拉取后通过。
+  - 面板内升级：在 Debian 13 systemd 容器里装了版本号标为 0.4.0 的本版构建，经接口一键升级到真实发布的 v0.4.1，升级日志完整，健康检查通过，备份目录生成。
+  - 发行版集成测试（加 `--docker`）：Ubuntu 22.04 / 24.04、Debian 12 / 13 全部通过（Docker 29.9.2）。Rocky / Alma 的结果见下一条。云端宿主机是 cgroup v1，Ubuntu 26.04 的 systemd 无法在容器里启动，只能在 CI 中测。
+  - 还没有在测试服务器上实测。

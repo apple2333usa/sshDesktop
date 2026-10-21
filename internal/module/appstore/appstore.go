@@ -43,6 +43,7 @@ type Service struct {
 	catalogs map[string]*Catalog
 	errs     map[string]string
 	syncing  bool
+	syncMu   sync.Mutex
 	// 正在安装、升级或卸载的应用（名称 → 任务 ID），避免同时操作
 	busy map[string]string
 
@@ -139,11 +140,13 @@ func (s *Service) Load() {
 }
 
 func (s *Service) syncAll(ctx context.Context, log func(string, ...any)) error {
-	s.mu.Lock()
-	if s.syncing {
-		s.mu.Unlock()
-		return fmt.Errorf("正在同步中")
+	// 已有同步在进行（例如启动时的自动同步）时等它结束再同步一次，这样刚添加的源也会被同步
+	if !s.syncMu.TryLock() {
+		log("另一次同步正在进行，等它完成后再同步")
+		s.syncMu.Lock()
 	}
+	defer s.syncMu.Unlock()
+	s.mu.Lock()
 	s.syncing = true
 	s.mu.Unlock()
 	defer func() {

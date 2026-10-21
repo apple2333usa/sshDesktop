@@ -110,8 +110,9 @@ if [ -n "$LOCAL_BIN" ]; then
   cp "$LOCAL_BIN" "$TMP/sshdesktop"
 else
   if [ -z "$VERSION" ]; then
-    VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/') ||
+    VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | sed -nE 's/.*"tag_name": *"([^"]+)".*/\1/p' | head -n 1) ||
       die "无法获取最新版本号，可用 --version 指定"
+    [ -n "$VERSION" ] || die "无法获取最新版本号，可用 --version 指定"
   fi
   BASE="https://github.com/$REPO/releases/download/$VERSION"
   [ -z "$MIRROR" ] || BASE="$MIRROR/$BASE"
@@ -188,9 +189,10 @@ IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 case "$IP" in
   "" | 10.* | 192.168.* | 172.1[6-9].* | 172.2[0-9].* | 172.3[01].* | 100.6[4-9].* | 100.[7-9][0-9].* | 100.1[01][0-9].* | 100.12[0-7].*) IP="" ;;
 esac
-# 优先取 sshd 的生效配置；ss 里要精确匹配 "sshd"，否则会匹配到 sshdesktop 自己
-SSH_PORT=$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2; exit}')
-[ -n "$SSH_PORT" ] || SSH_PORT=$(ss -lntp 2>/dev/null | awk '/"sshd"/ {n = split($4, a, ":"); print a[n]; exit}')
+# 优先取 sshd 的生效配置；ss 里要精确匹配 "sshd"，否则会匹配到 sshdesktop 自己。
+# awk 读完全部输入再退出：提前退出会让前面的命令收到 SIGPIPE，在 pipefail 下导致整个脚本中止、不打印初始密码
+SSH_PORT=$(sshd -T 2>/dev/null | awk '$1 == "port" && !p {print $2; p = 1}' || true)
+[ -n "$SSH_PORT" ] || SSH_PORT=$(ss -lntp 2>/dev/null | awk '/"sshd"/ && !p {n = split($4, a, ":"); print a[n]; p = 1}' || true)
 echo
 green "sshDesktop 安装完成（$("$BIN" version)）"
 echo

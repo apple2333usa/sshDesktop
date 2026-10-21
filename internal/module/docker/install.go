@@ -14,27 +14,41 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 安装方式：script 为 Docker 官方安装脚本（get.docker.com，支持 --mirror），
+// 安装方式：script 为 Docker 官方安装脚本（get.docker.com，支持 --mirror；在 RHEL 系失败时改用 CentOS 软件源），
 // package 为发行版软件包（Debian / Ubuntu 用 docker.io，RHEL 系用 Docker 官方 yum 源）。
 const installScript = `set -e
+dnf_install() {
+  dnf install -y dnf-plugins-core
+  REPO=https://download.docker.com/linux/centos/docker-ce.repo
+  if [ "$SD_MIRROR" = Aliyun ]; then REPO=https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo; fi
+  rm -f /etc/yum.repos.d/docker-ce.repo
+  dnf config-manager --add-repo "$REPO" || dnf config-manager addrepo --from-repofile="$REPO"
+  if [ "$SD_MIRROR" = Aliyun ]; then sed -i 's#download.docker.com#mirrors.aliyun.com/docker-ce#' /etc/yum.repos.d/docker-ce.repo; fi
+  dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
 if [ "$SD_METHOD" = script ]; then
   if command -v curl >/dev/null 2>&1; then curl -fsSL https://get.docker.com -o /tmp/sshdesktop-get-docker.sh
   else wget -qO /tmp/sshdesktop-get-docker.sh https://get.docker.com; fi
-  if [ -n "$SD_MIRROR" ]; then sh /tmp/sshdesktop-get-docker.sh --mirror "$SD_MIRROR"
-  else sh /tmp/sshdesktop-get-docker.sh; fi
+  rc=0
+  if [ -n "$SD_MIRROR" ]; then sh /tmp/sshdesktop-get-docker.sh --mirror "$SD_MIRROR" || rc=$?
+  else sh /tmp/sshdesktop-get-docker.sh || rc=$?; fi
   rm -f /tmp/sshdesktop-get-docker.sh
+  if [ $rc != 0 ]; then
+    # 官方脚本给 Rocky / Alma 用的专属软件源可能还没有 docker-ce，改用 RHEL 系通用的 CentOS 软件源
+    if command -v dnf >/dev/null 2>&1; then
+      echo "官方安装脚本失败（退出码 $rc），改用 Docker 官方的 CentOS 软件源安装"
+      dnf_install
+    else
+      exit $rc
+    fi
+  fi
 elif command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y docker.io
   apt-get install -y docker-compose-v2 || apt-get install -y docker-compose-plugin || apt-get install -y docker-compose
 elif command -v dnf >/dev/null 2>&1; then
-  dnf install -y dnf-plugins-core
-  REPO=https://download.docker.com/linux/centos/docker-ce.repo
-  if [ "$SD_MIRROR" = Aliyun ]; then REPO=https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo; fi
-  dnf config-manager --add-repo "$REPO" || dnf config-manager addrepo --from-repofile="$REPO"
-  if [ "$SD_MIRROR" = Aliyun ]; then sed -i 's#download.docker.com#mirrors.aliyun.com/docker-ce#' /etc/yum.repos.d/docker-ce.repo; fi
-  dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  dnf_install
 else
   echo "不支持的发行版：没有 apt-get 或 dnf" >&2
   exit 1

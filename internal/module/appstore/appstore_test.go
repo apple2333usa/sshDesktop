@@ -1,10 +1,15 @@
 package appstore
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/apple2333usa/sshdesktop/internal/store"
 )
 
 const sampleIndex = `{
@@ -222,5 +227,47 @@ func TestCompareVersions(t *testing.T) {
 	}
 	if major("8.0.36") != "8" || major("v3.1") != "3" {
 		t.Fatal("major")
+	}
+}
+
+// 已有同步在进行时，手动同步等它结束再同步，而不是直接失败（否则刚添加的源不会被同步）。
+func TestSyncWaitsForRunningSync(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	app := filepath.Join(dir, "apps", "demo", "1.0.0")
+	os.MkdirAll(app, 0o755)
+	os.WriteFile(filepath.Join(app, "docker-compose.yml"), []byte("services: {}\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "apps", "demo", "data.yml"), []byte("name: Demo\nadditionalProperties:\n  key: demo\n"), 0o644)
+	st.SetSetting(sourcesKey, []Source{{ID: "1panel", Enabled: false}, {ID: "local", Name: "本机", Type: "dir", URL: dir, Enabled: true}})
+	s := New(Deps{Store: st, DataDir: t.TempDir()})
+
+	s.syncMu.Lock() // 模拟正在进行的自动同步
+	var logs []string
+	done := make(chan error, 1)
+	go func() {
+		done <- s.syncAll(context.Background(), func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) })
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("应当等待正在进行的同步，却返回了 %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	s.syncMu.Unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("同步没有完成")
+	}
+	if s.catalogs["local"] == nil || len(s.catalogs["local"].Apps) != 1 {
+		t.Fatalf("本机源没有同步：%v", s.catalogs)
+	}
+	if len(logs) == 0 || !strings.Contains(logs[0], "等它完成") {
+		t.Fatalf("logs = %v", logs)
 	}
 }

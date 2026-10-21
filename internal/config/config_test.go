@@ -1,7 +1,9 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -62,5 +64,43 @@ func TestValidateHTTPSNeedsDomainAndCert(t *testing.T) {
 	c.Domain = "x.example.com"
 	if c.Validate() == nil {
 		t.Fatal("启用 HTTPS 但没有证书应报错")
+	}
+}
+
+func TestSaveKeepsComments(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(p, []byte(`# sshDesktop 配置。修改后运行 systemctl restart sshdesktop 生效。
+# 也可以用命令修改：sshdesktop config set port 33333
+port: 33333 # 面板端口
+dataDir: /var/lib/sshdesktop
+logDir: /var/log/sshdesktop
+logLevel: info
+`), 0o600)
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Set("port", "34567")
+	c.Set("domain", "panel.example.com")
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	got := string(b)
+	for _, want := range []string{"# sshDesktop 配置。", "# 也可以用命令修改", "port: 34567 # 面板端口", "domain: panel.example.com", "https:\n  enabled: false"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("缺少 %q：\n%s", want, got)
+		}
+	}
+	// 去掉的键从文件中删除，注释仍在
+	c.Unset("domain")
+	c.Save()
+	b, _ = os.ReadFile(p)
+	if strings.Contains(string(b), "domain") || !strings.Contains(string(b), "# sshDesktop 配置。") {
+		t.Fatalf("unset 后：\n%s", b)
+	}
+	c2, err := Load(p)
+	if err != nil || c2.Port != 34567 {
+		t.Fatalf("重新读取：%v %+v", err, c2)
 	}
 }

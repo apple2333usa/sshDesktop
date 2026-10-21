@@ -1,12 +1,12 @@
 # sshDesktop
 
-> 版本：0.4.1 · 更新时间：2026-10-21 16:34 +08:00 · 状态：M4（网站与安全）完成，P0 的四个里程碑全部完成；0.4.1 修复测试服务器实测发现的问题
+> 版本：0.5.0 · 更新时间：2026-10-21 20:05 +08:00 · 状态：M5（稳定化）进行中，P0 功能全部完成；服务器实测和验收通过后发布 v1.0.0
 
 sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合了 [1Panel](https://github.com/1Panel-dev/1Panel) 的主机管理能力和[哪吒探针](https://github.com/nezhahq/nezha)的多机监控能力。除了传统的后台界面，它还提供**桌面模式**：在浏览器里渲染一个 Windows 11 风格的桌面，有任务栏、开始菜单、可拖拽的窗口和文件资源管理器，让你用操作 PC 的方式管理服务器。
 
 以 GPL-3.0 开源。
 
-## 当前功能（0.4.1）
+## 当前功能（0.5.0）
 
 | 功能 | 说明 | 代码 |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合
 | 编辑器与预览 | CodeMirror 编辑器（按文件名和 shebang 识别语言，冲突检测，保留 CRLF），图片、视频、音频、PDF 预览 | `web/src/apps/editor/`、`web/src/apps/viewer/` |
 | 进程 | 列表与树形视图、搜索、发送信号、打开的文件与网络连接 | `internal/module/process/`、`web/src/apps/processes/` |
 | 系统服务 | systemd 单元列表与筛选、启动停止重启、开机自启、实时日志、查看单元文件 | `internal/module/service/`、`web/src/apps/services/` |
-| 设置 | 个性化、终端、修改密码、面板运行参数、面板访问方式、关于 | `internal/module/system/`、`web/src/apps/settings/` |
+| 设置 | 个性化、终端、修改密码、面板运行参数、面板访问方式、关于；“关于”中检查新版本并一键升级（在独立的 systemd 单元里执行 `sshdesktop upgrade`，失败自动回滚），有新版本时提醒管理员 | `internal/module/system/`、`web/src/apps/settings/` |
 | 服务器管理 | 添加远程服务器（私钥或密码，凭据用主密钥 AES-256-GCM 加密；首次连接核对主机指纹，指纹变化拒绝连接并醒目提示，二级确认后才接受新指纹）、修改、删除（二级确认）、重新连接；每台服务器一条 SSH 长连接，终端、SFTP、agent 通道、命令复用，断线指数退避重连，每台最多 32 个通道、8 个文件传输。多服务器卡片墙总览，任务栏托盘与小组件显示在线状态，断线和恢复进入通知中心 | `internal/node/`、`internal/module/nodes/`、`internal/secret/`、`web/src/apps/servers/`、`web/src/stores/nodes.ts` |
 | agent | 独立的只读 agent（systemd + DynamicUser 运行，socket `/run/sshdesktop/agent.sock` 由 `sshdesktop-agent.socket` 创建，保存 7 天分钟级指标和流量计数），面板经 SSH 通道读取；一键安装通过 SFTP 上传与对方架构匹配的二进制，远程服务器不需要外网，需要 root 或 sudo。面板自身在同一 socket 提供相同接口；没有 agent 时每 5 秒经 SSH 采集 | `cmd/sshdesktop-agent/`、`internal/agent/`、`internal/agentbin/`、`internal/module/nodes/agent.go`、`internal/module/monitor/remote.go` |
 | 远程文件与终端 | 资源管理器“网络”下每台服务器一个网络位置（SFTP），跨服务器复制、剪切、拖放由面板中转并显示进度；终端可在任意服务器上开标签页或分屏，同步输入可同时发给多台服务器；窗口标题栏用彩色标签标出所属服务器 | `internal/vfs/sftp.go`、`internal/module/files/ops.go`、`web/src/apps/explorer/`、`web/src/apps/terminal/` |
@@ -37,13 +37,13 @@ sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合
 | 防火墙 | 管理 ufw 或 firewalld 的全部规则（放行 / 拒绝、端口、协议、来源 IP），启用 / 停用；可能断开连接的修改要在 60 秒内确认，否则自动撤销，SSH 和面板端口始终放行；没有防火墙时一键安装，只有手写 iptables / nftables 规则时只读展示；识别 1Panel 和 fail2ban 的规则链，防火墙由 1Panel 管理时不建议再装 ufw | `internal/pending/`、`internal/module/firewall/`、`web/src/apps/firewall/` |
 | SSH 设置 | 端口、密码登录、公钥登录、root 登录，写入独立的 `sshd_config.d/00-sshdesktop.conf`，`sshd -t` 校验后 60 秒内确认，改端口时新旧端口同时监听并自动放行防火墙；各账号的授权密钥；登录记录与失败最多的来源 | `internal/module/sshd/`、`web/src/apps/sshd/` |
 | 环境体检 | 检查 Web 服务、证书、Docker、防火墙、计划任务、SSH、端口和系统，说明哪些已由面板管理、需要注意什么，并提示与 1Panel、宝塔面板共存时的注意事项；管理员第一次登录时自动运行 | `internal/module/inspect/`、`web/src/apps/inspect/` |
-| 命令行 | `server`、`info`、`user add/reset-password/delete/list`、`config show/get/set/unset`、`cron run/sync`、`upgrade`、`uninstall`、`version` | `cmd/sshdesktop/` |
+| 命令行 | `server`、`info`、`user add/reset-password/delete/list`、`config show/get/set/unset`（修改时保留配置文件里的注释）、`cron run/sync`、`upgrade`（备份旧版本和数据库，只保留最近 3 次）、`uninstall`、`version` | `cmd/sshdesktop/` |
 
-P0 的四个里程碑已经完成，之后是 P1（Fail2ban 等安全工具、AI 助手、通行密钥等），详见 [docs/design.md](docs/design.md)。Docker、应用商店、计划任务、备份、网站、防火墙、SSH 设置等高权限功能只对本机开放。
+P0 的四个里程碑已经完成，M5 做稳定化并发布 v1.0.0，之后是 P1（Fail2ban 等安全工具、AI 助手、通行密钥等），详见 [docs/design.md](docs/design.md)。Docker、应用商店、计划任务、备份、网站、防火墙、SSH 设置等高权限功能只对本机开放。
 
 ## 安装
 
-需要 systemd，支持 amd64 和 arm64；官方测试 Ubuntu 22.04+、Debian 12+、Rocky/Alma 9+。
+需要 systemd，支持 amd64 和 arm64；CI 中在 Ubuntu 22.04 / 24.04 / 26.04、Debian 12 / 13、Rocky / Alma 9 / 10 上测试安装、升级和卸载。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/apple2333usa/sshDesktop/main/scripts/install.sh | sudo bash
@@ -58,7 +58,7 @@ ssh -N -L 33333:127.0.0.1:33333 -p <SSH端口> <用户>@<服务器IP>
 # 然后浏览器打开 http://127.0.0.1:33333
 ```
 
-MobaXterm、Termius 等工具配置同样的本地端口转发即可。需要通过域名直接访问时，先在“网站 → 证书”中为面板域名申请证书，再到“设置 → 面板设置 → 面板访问方式”选择公网 HTTPS、域名和证书，60 秒内在新地址确认即可。也可以在命令行配置：
+MobaXterm、Termius 等工具配置同样的本地端口转发即可。升级：在“设置 → 关于”中一键升级，或在服务器上运行 `sshdesktop upgrade`。需要通过域名直接访问时，先在“网站 → 证书”中为面板域名申请证书，再到“设置 → 面板设置 → 面板访问方式”选择公网 HTTPS、域名和证书，60 秒内在新地址确认即可。也可以在命令行配置：
 
 ```bash
 sshdesktop config set domain panel.example.com
@@ -93,11 +93,13 @@ cd web
 SD_URL=http://127.0.0.1:33333 SD_USER=<账号> SD_PASS=<密码> npx playwright test
 ```
 
-在没有 systemd 的容器里加 `SD_NO_SYSTEMD=1` 跳过服务列表断言；`SD_SHOTS=<目录>` 额外截图到该目录。M3 用例（`e2e/m3.spec.ts`：容器与 Compose、本机目录源安装应用、计划任务、加密备份与恢复）要求测试和面板在同一台机器上、面板以 root 运行并装有 Docker，设置 `SD_M3=1` 启用。M4 用例（`e2e/m4.spec.ts`：接管 Nginx 建站并启用 HTTPS、防火墙规则、SSH 改端口后撤销与授权密钥、环境体检、切换面板端口）同样要在面板所在机器上以 root 运行，需要 Nginx、openssl、ssh-keygen，设置 `SD_M4=1` 启用，`SD_M4_PORT` 指定面板临时切换到的端口（默认 33398）。多服务器用例（`e2e/servers.spec.ts`）需要一台可 SSH 登录的服务器，设置 `SD_SSH_HOST`、`SD_SSH_PORT`、`SD_SSH_USER`、`SD_SSH_PASS`（可以就是面板所在的机器），没设置时跳过。
+在没有 systemd 的容器里加 `SD_NO_SYSTEMD=1` 跳过服务列表断言；`SD_SHOTS=<目录>` 额外截图到该目录。M3 用例（`e2e/m3.spec.ts`：容器与 Compose、本机目录源安装应用、计划任务、加密备份与恢复）要求测试和面板在同一台机器上、面板以 root 运行并装有 Docker，设置 `SD_M3=1` 启用。M4 用例（`e2e/m4.spec.ts`：接管 Nginx 建站并启用 HTTPS、防火墙规则、SSH 改端口后撤销与授权密钥、环境体检、切换面板端口）同样要在面板所在机器上以 root 运行，需要 Nginx、openssl、ssh-keygen，设置 `SD_M4=1` 启用，`SD_M4_PORT` 指定面板临时切换到的端口（默认 33398）。M5 用例（`e2e/m5.spec.ts`：设置中的升级卡片）没有额外要求。多服务器用例（`e2e/servers.spec.ts`）需要一台可 SSH 登录的服务器，设置 `SD_SSH_HOST`、`SD_SSH_PORT`、`SD_SSH_USER`、`SD_SSH_PASS`（可以就是面板所在的机器），没设置时跳过。
 
 Go 测试里的远程节点用进程内 SSH 服务器（`internal/node/sshtest/`，支持密码与私钥认证、exec、PTY、SFTP 和 Unix socket 转发），不需要真实的 sshd。Docker、应用商店和备份的集成测试（`internal/server/m3_test.go`）需要 root 和可用的 Docker，否则跳过；S3 目标测试设置 `SSHD_TEST_S3=<地址>,<存储桶>,<AccessKey>,<SecretKey>` 时运行，真实应用索引的解析测试设置 `SSHD_TEST_INDEX=<索引文件>` 时运行。网站模块的测试在装有 nginx 时额外用 `nginx -t` 校验生成的配置。
 
-CI（`.github/workflows/ci.yml`）在推送 main 和 PR 时跑 Go vet 与测试、前端类型检查与单元测试、构建并冒烟启动；推送 `v*` 标签时 `release.yml` 构建并发布 GitHub Release。
+发行版集成测试：`scripts/test-distros.sh <amd64 二进制> [--docker] [发行版…]` 在各支持发行版的 systemd 容器（`--privileged`）里依次测试安装脚本、接口、命令行、本地文件升级、（`--docker` 时）一键安装 Docker 和卸载。网络出口会替换 HTTPS 证书时用 `SDT_CA=<CA 文件>` 把证书装进容器。宿主机是 cgroup v1 时 Ubuntu 26.04 的 systemd 无法在容器里启动。
+
+CI（`.github/workflows/ci.yml`）在推送 main 和 PR 时跑 Go vet 与测试、前端类型检查与单元测试、构建并冒烟启动，再在 9 个发行版上并行跑上面的集成测试；推送 `v*` 标签时 `release.yml` 构建并发布 GitHub Release。
 
 ## 目录
 
@@ -113,7 +115,7 @@ CI（`.github/workflows/ci.yml`）在推送 main 和 PR 时跑 Go vet 与测试�
 | `internal/auth/`、`internal/rbac/`、`internal/audit/` | 登录、权限、审计 |
 | `internal/config/`、`internal/store/`、`internal/task/`、`internal/realtime/`、`internal/secret/` | 配置、SQLite 存储、后台任务、WebSocket 推送、凭据加密 |
 | `web/` | 前端（Vue 3 + TypeScript + Naive UI），`web/e2e/` 为端到端测试 |
-| `scripts/install.sh` | 一键安装脚本 |
+| `scripts/install.sh`、`scripts/test-distros.sh` | 一键安装脚本、发行版集成测试 |
 | `docs/` | 设计文档、需求记录、旧版 README 归档 |
 
 ## 文档

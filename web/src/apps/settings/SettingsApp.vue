@@ -14,6 +14,7 @@ import { wallpapers, wallpaperCSS } from '@/theme/wallpapers'
 import { errorText, formatDuration, formatTime } from '@/i18n'
 import SdIcon from '@/components/SdIcon.vue'
 import PanelAccess from './PanelAccess.vue'
+import PanelUpgrade from './PanelUpgrade.vue'
 
 const host = useAppHost()
 const { t } = useI18n()
@@ -329,11 +330,7 @@ const snippets = computed({
             </template>
           </dl>
         </div>
-        <div v-if="session.isAdmin" class="card">
-          <div class="title">{{ t('settings.upgrade') }}</div>
-          <div class="sd-muted small">{{ t('settings.upgradeHint') }}</div>
-          <pre class="cmd sd-mono">sshdesktop upgrade</pre>
-        </div>
+        <PanelUpgrade v-if="session.isAdmin" />
       </template>
     </main>
   </div>

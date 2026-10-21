@@ -154,7 +154,8 @@ test('流量统计与服务监控页面', async ({ page }) => {
   await tr.getByTestId('traffic-settings').click()
   await page.getByTestId('traffic-reset-day').locator('input').fill('15')
   await page.getByTestId('traffic-save').click()
-  await expect(page.getByText('每月 15 日重置')).toBeVisible()
+  // 没装 agent 的服务器不统计流量、不显示卡片，只看周期是否改为 15 日开始
+  await expect(tr.locator('.head')).toContainText('-15 ~')
   await closeAll(page)
 
   const pr = await openApp(page, 'probes')

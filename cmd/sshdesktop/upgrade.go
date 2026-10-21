@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -14,12 +15,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
 	sshdesktop "github.com/apple2333usa/sshdesktop"
 	"github.com/apple2333usa/sshdesktop/internal/config"
 	"github.com/apple2333usa/sshdesktop/internal/module/cron"
+	"github.com/apple2333usa/sshdesktop/internal/module/system"
 	"github.com/spf13/cobra"
 )
 
@@ -47,18 +50,9 @@ func httpGet(url string) (*http.Response, error) {
 }
 
 func latestTag() (string, error) {
-	resp, err := httpGet("https://api.github.com/repos/" + repo + "/releases/latest")
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	var r struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return "", err
-	}
-	return r.TagName, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return system.LatestTag(ctx)
 }
 
 // download 下载新版本二进制和 SHA256SUMS 并校验，返回临时文件路径。
@@ -164,6 +158,46 @@ func healthCheck(cfg *config.Config, wantVersion string) error {
 	return fmt.Errorf("健康检查失败：%v", lastErr)
 }
 
+// keepUpgradeBackups 是保留的升级备份次数（每次一个二进制和一个数据库）。
+const keepUpgradeBackups = 3
+
+// pruneUpgradeBackups 按修改时间只保留最近 keep 个旧二进制（sshdesktop-<版本>-<时间>）和 keep 个数据库（sshdesktop-<时间>.db），
+// 返回删除的文件数。
+func pruneUpgradeBackups(dir string, keep int) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	type file struct {
+		path string
+		mod  time.Time
+	}
+	var bins, dbs []file
+	for _, e := range entries {
+		name := e.Name()
+		info, err := e.Info()
+		if err != nil || !info.Mode().IsRegular() || !strings.HasPrefix(name, "sshdesktop-") {
+			continue
+		}
+		f := file{filepath.Join(dir, name), info.ModTime()}
+		if strings.HasSuffix(name, ".db") {
+			dbs = append(dbs, f)
+		} else {
+			bins = append(bins, f)
+		}
+	}
+	n := 0
+	for _, list := range [][]file{bins, dbs} {
+		sort.Slice(list, func(i, j int) bool { return list[i].mod.After(list[j].mod) })
+		for i := keep; i < len(list); i++ {
+			if os.Remove(list[i].path) == nil {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 func upgradeCmd() *cobra.Command {
 	var tag, file, mirror string
 	cmd := &cobra.Command{
@@ -215,6 +249,9 @@ func upgradeCmd() *cobra.Command {
 				st.Close()
 			}
 			fmt.Printf("已备份旧版本到 %s\n", backupDir)
+			if n := pruneUpgradeBackups(backupDir, keepUpgradeBackups); n > 0 {
+				fmt.Printf("已删除 %d 个较早的升级备份（保留最近 %d 次）\n", n, keepUpgradeBackups)
+			}
 
 			install := func(src string) error {
 				tmp := binaryPath + ".new"

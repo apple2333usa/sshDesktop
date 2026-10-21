@@ -1,8 +1,11 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/apple2333usa/sshdesktop/internal/auth"
 	"github.com/apple2333usa/sshdesktop/internal/rbac"
@@ -57,5 +60,35 @@ func TestDeleteUser(t *testing.T) {
 	st.DB.Model(&store.User{}).Where("id = ?", a.ID).Count(&n)
 	if n != 1 {
 		t.Fatal("管理员被删除了")
+	}
+}
+
+func TestPruneUpgradeBackups(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Now().Add(-time.Hour)
+	names := []string{
+		"sshdesktop-0.1.0-20261020-100000", "sshdesktop-0.2.0-20261020-200000", "sshdesktop-0.3.0-20261021-000000",
+		"sshdesktop-0.4.0-20261021-140000", "sshdesktop-0.4.1-20261021-160000",
+		"sshdesktop-20261020-100000.db", "sshdesktop-20261020-200000.db", "sshdesktop-20261021-000000.db",
+		"sshdesktop-20261021-140000.db", "other.txt",
+	}
+	for i, n := range names {
+		p := filepath.Join(dir, n)
+		os.WriteFile(p, []byte("x"), 0o600)
+		mt := base.Add(time.Duration(i%5) * time.Minute)
+		os.Chtimes(p, mt, mt)
+	}
+	if n := pruneUpgradeBackups(dir, 3); n != 3 {
+		t.Fatalf("删除了 %d 个，期望 3 个", n)
+	}
+	left, _ := os.ReadDir(dir)
+	var got []string
+	for _, e := range left {
+		got = append(got, e.Name())
+	}
+	want := "other.txt sshdesktop-0.3.0-20261021-000000 sshdesktop-0.4.0-20261021-140000 sshdesktop-0.4.1-20261021-160000 " +
+		"sshdesktop-20261020-200000.db sshdesktop-20261021-000000.db sshdesktop-20261021-140000.db"
+	if strings.Join(got, " ") != want {
+		t.Fatalf("剩下：%v", got)
 	}
 }

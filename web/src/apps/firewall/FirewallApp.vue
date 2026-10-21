@@ -184,7 +184,7 @@ async function install() {
     </div>
     <NAlert v-if="st?.backend === 'none'" type="info" :bordered="false" class="note" :title="t('firewall.none')">
       <p v-for="n in st.notes" :key="n" class="pre">{{ n }}</p>
-      <NButton v-if="canManage" size="small" type="primary" @click="install">{{ t('firewall.install') }}</NButton>
+      <NButton v-if="canManage && !st.managers?.includes('1Panel')" size="small" type="primary" @click="install">{{ t('firewall.install') }}</NButton>
     </NAlert>
     <template v-else-if="st">
       <div v-if="protectedText" class="sd-muted small hint">{{ t('firewall.protectedHint', { ports: protectedText }) }}</div>

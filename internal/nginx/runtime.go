@@ -168,10 +168,7 @@ func (rt Runtime) Reload(ctx context.Context) error {
 			}
 			return nil
 		}
-		if out, err := rt.cmd(ctx, "-s", "reload").CombinedOutput(); err != nil {
-			return fmt.Errorf("重新加载失败：%s", strings.TrimSpace(string(out)))
-		}
-		return nil
+		return rt.signalReload(ctx)
 	}
 	unit := rt.unit(ctx)
 	if unit != "" {
@@ -179,9 +176,11 @@ func (rt Runtime) Reload(ctx context.Context) error {
 		if out, _ := exec.CommandContext(ctx, "systemctl", "is-active", unit).Output(); strings.TrimSpace(string(out)) != "active" {
 			action = "start"
 		}
+		before := snapshot(rt.masters(ctx))
 		if out, err := exec.CommandContext(ctx, "systemctl", action, unit).CombinedOutput(); err != nil {
 			return fmt.Errorf("systemctl %s %s 失败：%s", action, unit, strings.TrimSpace(string(out)))
 		}
+		waitWorkers(ctx, before)
 		return nil
 	}
 	if !rt.Running(ctx) {
@@ -190,9 +189,16 @@ func (rt Runtime) Reload(ctx context.Context) error {
 		}
 		return nil
 	}
+	return rt.signalReload(ctx)
+}
+
+// signalReload 执行 nginx -s reload，并等新的工作进程接替旧的。
+func (rt Runtime) signalReload(ctx context.Context) error {
+	before := snapshot(rt.masters(ctx))
 	if out, err := rt.cmd(ctx, "-s", "reload").CombinedOutput(); err != nil {
 		return fmt.Errorf("重新加载失败：%s", strings.TrimSpace(string(out)))
 	}
+	waitWorkers(ctx, before)
 	return nil
 }
 

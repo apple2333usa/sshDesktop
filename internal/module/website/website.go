@@ -885,7 +885,8 @@ func (s *Service) save(c *gin.Context) {
 			return
 		}
 		old = &o
-		w.ID, w.CreatedAt, w.TakeoverFrom, w.TakeoverBak = o.ID, o.CreatedAt, o.TakeoverFrom, o.TakeoverBak
+		// 启用 / 停用只走 /enable，修改时保持原状态（请求里没有这个字段时不会把站点停用）
+		w.ID, w.CreatedAt, w.TakeoverFrom, w.TakeoverBak, w.Enabled = o.ID, o.CreatedAt, o.TakeoverFrom, o.TakeoverBak, o.Enabled
 		if w.AppName == "" {
 			w.AppName = o.AppName
 		}

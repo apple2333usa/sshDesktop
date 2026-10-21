@@ -266,6 +266,8 @@ func (m *Manager) finish(kind, id, result string) error {
 		err = m.restore(c, h)
 		if err != nil {
 			slog.Error("回滚失败", "kind", kind, "title", c.Title, "err", err)
+		} else if result == "reverted" {
+			slog.Info("修改已撤销", "kind", kind, "title", c.Title)
 		} else {
 			slog.Warn("修改未确认，已回滚", "kind", kind, "title", c.Title, "result", result)
 		}

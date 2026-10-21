@@ -110,7 +110,7 @@ func readPassword(prompt string, confirm bool) (string, error) {
 }
 
 func userCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "user", Short: "账号管理（创建、重置密码、列表）"}
+	cmd := &cobra.Command{Use: "user", Short: "账号管理（创建、重置密码、删除、列表）"}
 
 	var password, roleName string
 	var random bool
@@ -224,8 +224,58 @@ func userCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(add, reset, list)
+	var yes bool
+	del := &cobra.Command{
+		Use:   "delete <用户名>",
+		Short: "删除账号并注销它的所有会话（不能删除最后一个启用中的管理员）",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			st, err := openStore(cfg)
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+			if !yes {
+				fmt.Printf("将删除账号 %s 并注销它的所有会话。确认请输入 yes：", args[0])
+				var answer string
+				fmt.Scanln(&answer)
+				if answer != "yes" {
+					return errors.New("已取消")
+				}
+			}
+			if err := deleteUser(st, args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("已删除账号 %s\n", args[0])
+			return nil
+		},
+	}
+	del.Flags().BoolVarP(&yes, "yes", "y", false, "不再确认")
+	cmd.AddCommand(add, reset, del, list)
 	return cmd
+}
+
+// deleteUser 与面板中删除账号相同：注销会话、删除桌面布局，再删除账号；审计日志保留。
+func deleteUser(st *store.Store, name string) error {
+	var u store.User
+	if err := st.DB.Preload("Role").Where("username = ?", name).First(&u).Error; err != nil {
+		return fmt.Errorf("账号 %q 不存在", name)
+	}
+	if u.Role != nil && u.Role.IsAdmin && !u.Disabled {
+		var n int64
+		st.DB.Model(&store.User{}).Joins("JOIN roles ON roles.id = users.role_id").
+			Where("roles.is_admin = ? AND users.disabled = ? AND users.id <> ?", true, false, u.ID).Count(&n)
+		if n == 0 {
+			return errors.New("至少要保留一个启用中的管理员账号")
+		}
+	}
+	auth.New(st).RevokeUser(u.ID, 0)
+	st.DB.Where("user_id = ?", u.ID).Delete(&store.DesktopState{})
+	return st.DB.Delete(&u).Error
 }
 
 func choosePassword(given string, random bool) (string, error) {

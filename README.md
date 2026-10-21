@@ -1,12 +1,12 @@
 # sshDesktop
 
-> 版本：0.4.0 · 更新时间：2026-10-21 14:34 +08:00 · 状态：M4（网站与安全）完成，P0 的四个里程碑全部完成
+> 版本：0.4.1 · 更新时间：2026-10-21 16:34 +08:00 · 状态：M4（网站与安全）完成，P0 的四个里程碑全部完成；0.4.1 修复测试服务器实测发现的问题
 
 sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合了 [1Panel](https://github.com/1Panel-dev/1Panel) 的主机管理能力和[哪吒探针](https://github.com/nezhahq/nezha)的多机监控能力。除了传统的后台界面，它还提供**桌面模式**：在浏览器里渲染一个 Windows 11 风格的桌面，有任务栏、开始菜单、可拖拽的窗口和文件资源管理器，让你用操作 PC 的方式管理服务器。
 
 以 GPL-3.0 开源。
 
-## 当前功能（0.4.0）
+## 当前功能（0.4.1）
 
 | 功能 | 说明 | 代码 |
 | --- | --- | --- |
@@ -34,10 +34,10 @@ sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合
 | 备份与恢复 | 备份目录、应用、网站（配置、证书、静态文件）或面板数据（含证书）到本机目录、远程服务器（SFTP）、S3 兼容存储、WebDAV；可定时、可加密（与 OpenSSL 兼容，没有面板也能解密）、按份数和天数保留；恢复为二级确认，恢复前自动快照（可撤销），目录可恢复到其他位置，面板数据在重启时换入 | `internal/backup/`、`internal/module/backup/`、`web/src/apps/backup/` |
 | 网站 | 接管宿主机已有的 Nginx / OpenResty（只加一行 include，原有站点不变），或一键安装面板管理的 OpenResty 容器；反向代理和静态网站，多域名、HTTPS、强制跳转、HTTP/2、HSTS、WebSocket、附加配置，保存前 `nginx -t` 校验，失败不改动；访问 / 错误日志；已有站点结构简单的可接管为表单编辑（可还原），其他的直接编辑原文件 | `internal/nginx/`、`internal/module/website/`、`web/src/apps/websites/` |
 | 证书 | Let's Encrypt、ZeroSSL 或自定义 ACME，HTTP 验证或 DNS 验证（Cloudflare、阿里云、腾讯云 DNSPod，支持通配符），到期前 30 天自动续期；上传自有证书；识别 certbot、acme.sh 的证书，certbot 证书可迁移为面板续期；网站和面板 HTTPS 都从这里选证书 | `internal/module/cert/`、`web/src/apps/websites/CertsTab.vue` |
-| 防火墙 | 管理 ufw 或 firewalld 的全部规则（放行 / 拒绝、端口、协议、来源 IP），启用 / 停用；可能断开连接的修改要在 60 秒内确认，否则自动撤销，SSH 和面板端口始终放行；没有防火墙时一键安装，只有手写 iptables / nftables 规则时只读展示 | `internal/pending/`、`internal/module/firewall/`、`web/src/apps/firewall/` |
+| 防火墙 | 管理 ufw 或 firewalld 的全部规则（放行 / 拒绝、端口、协议、来源 IP），启用 / 停用；可能断开连接的修改要在 60 秒内确认，否则自动撤销，SSH 和面板端口始终放行；没有防火墙时一键安装，只有手写 iptables / nftables 规则时只读展示；识别 1Panel 和 fail2ban 的规则链，防火墙由 1Panel 管理时不建议再装 ufw | `internal/pending/`、`internal/module/firewall/`、`web/src/apps/firewall/` |
 | SSH 设置 | 端口、密码登录、公钥登录、root 登录，写入独立的 `sshd_config.d/00-sshdesktop.conf`，`sshd -t` 校验后 60 秒内确认，改端口时新旧端口同时监听并自动放行防火墙；各账号的授权密钥；登录记录与失败最多的来源 | `internal/module/sshd/`、`web/src/apps/sshd/` |
-| 环境体检 | 检查 Web 服务、证书、Docker、防火墙、计划任务、SSH、端口和系统，说明哪些已由面板管理、需要注意什么；管理员第一次登录时自动运行 | `internal/module/inspect/`、`web/src/apps/inspect/` |
-| 命令行 | `server`、`info`、`user add/reset-password/list`、`config show/get/set/unset`、`cron run/sync`、`upgrade`、`uninstall`、`version` | `cmd/sshdesktop/` |
+| 环境体检 | 检查 Web 服务、证书、Docker、防火墙、计划任务、SSH、端口和系统，说明哪些已由面板管理、需要注意什么，并提示与 1Panel、宝塔面板共存时的注意事项；管理员第一次登录时自动运行 | `internal/module/inspect/`、`web/src/apps/inspect/` |
+| 命令行 | `server`、`info`、`user add/reset-password/delete/list`、`config show/get/set/unset`、`cron run/sync`、`upgrade`、`uninstall`、`version` | `cmd/sshdesktop/` |
 
 P0 的四个里程碑已经完成，之后是 P1（Fail2ban 等安全工具、AI 助手、通行密钥等），详见 [docs/design.md](docs/design.md)。Docker、应用商店、计划任务、备份、网站、防火墙、SSH 设置等高权限功能只对本机开放。
 
@@ -67,7 +67,7 @@ sshdesktop config set https.key /path/privkey.pem
 sshdesktop config set https true && systemctl restart sshdesktop
 ```
 
-证书出问题进不去时，`sshdesktop config unset https` 可回到仅本机访问。忘记密码用 `sshdesktop user reset-password <用户名>`。
+证书出问题进不去时，`sshdesktop config unset https` 可回到仅本机访问。忘记密码用 `sshdesktop user reset-password <用户名>`，删除账号用 `sshdesktop user delete <用户名>`（会注销它的会话，不能删除最后一个启用中的管理员）。
 
 ### 添加其他服务器
 

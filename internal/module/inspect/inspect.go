@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -249,6 +250,9 @@ func (s *Service) firewall(ctx context.Context) Item {
 		if st.Raw != "" {
 			it.Summary = "只有手写的 " + st.RawTool + " 规则，面板只读展示"
 		}
+		if slices.Contains(st.Managers, "1Panel") {
+			it.State, it.Summary = Info, "由 1Panel 管理（"+st.RawTool+"），面板只读展示"
+		}
 		it.Notes = append(it.Notes, st.Notes...)
 	default:
 		it.State = Managed
@@ -269,6 +273,10 @@ func (s *Service) firewall(ctx context.Context) Item {
 		}
 		if !st.Active {
 			it.Actions = append(it.Actions, "在“防火墙”中放行需要的端口后启用；启用时会自动放行 SSH 端口")
+		}
+		if slices.Contains(st.Managers, "1Panel") {
+			it.State = Warning
+			it.Notes = append(it.Notes, "1Panel 也在管理防火墙，请只在一个面板中修改规则")
 		}
 	}
 	return it
@@ -371,6 +379,10 @@ func (s *Service) system(ctx context.Context) Item {
 	if b, err := os.ReadFile("/sys/module/apparmor/parameters/enabled"); err == nil && strings.TrimSpace(string(b)) == "Y" {
 		it.Summary += "，AppArmor 已启用"
 	}
+	for _, p := range otherPanels("") {
+		it.Summary += "，已安装 " + p
+		it.Notes = append(it.Notes, "检测到 "+p+"。两个面板可以共存，但不要在两边同时管理同一项（例如都占用 80 / 443 端口建网站、都修改防火墙或 SSH 设置），否则配置会互相覆盖")
+	}
 	for _, p := range []string{"/", s.d.DataDir} {
 		var fs syscall.Statfs_t
 		if syscall.Statfs(p, &fs) != nil {
@@ -383,4 +395,25 @@ func (s *Service) system(ctx context.Context) Item {
 		}
 	}
 	return it
+}
+
+// otherPanels 按安装路径识别同一台机器上的其他服务器面板；root 用于测试。
+func otherPanels(root string) []string {
+	known := []struct {
+		name  string
+		paths []string
+	}{
+		{"1Panel", []string{"/usr/local/bin/1panel", "/usr/bin/1panel", "/usr/local/bin/1panel-core", "/usr/bin/1pctl", "/usr/local/bin/1pctl", "/etc/systemd/system/1panel.service", "/etc/systemd/system/1panel-core.service"}},
+		{"宝塔面板", []string{"/www/server/panel/BT-Panel", "/etc/init.d/bt"}},
+	}
+	var out []string
+	for _, k := range known {
+		for _, p := range k.paths {
+			if _, err := os.Stat(filepath.Join(root, p)); err == nil {
+				out = append(out, k.name)
+				break
+			}
+		}
+	}
+	return out
 }

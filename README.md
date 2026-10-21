@@ -1,12 +1,12 @@
 # sshDesktop
 
-> 版本：0.5.0 · 更新时间：2026-10-21 20:05 +08:00 · 状态：M5（稳定化）进行中，P0 功能全部完成；服务器实测和验收通过后发布 v1.0.0
+> 版本：1.0.0 · 更新时间：2026-10-21 20:56 +08:00 · 状态：P0 功能与 M5 稳定化完成，正式版
 
 sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合了 [1Panel](https://github.com/1Panel-dev/1Panel) 的主机管理能力和[哪吒探针](https://github.com/nezhahq/nezha)的多机监控能力。除了传统的后台界面，它还提供**桌面模式**：在浏览器里渲染一个 Windows 11 风格的桌面，有任务栏、开始菜单、可拖拽的窗口和文件资源管理器，让你用操作 PC 的方式管理服务器。
 
 以 GPL-3.0 开源。
 
-## 当前功能（0.5.0）
+## 当前功能（1.0.0）
 
 | 功能 | 说明 | 代码 |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ sshDesktop 是一个装在 Linux 服务器上的开源 Web 管理面板，结合
 | 环境体检 | 检查 Web 服务、证书、Docker、防火墙、计划任务、SSH、端口和系统，说明哪些已由面板管理、需要注意什么，并提示与 1Panel、宝塔面板共存时的注意事项；管理员第一次登录时自动运行 | `internal/module/inspect/`、`web/src/apps/inspect/` |
 | 命令行 | `server`、`info`、`user add/reset-password/delete/list`、`config show/get/set/unset`（修改时保留配置文件里的注释）、`cron run/sync`、`upgrade`（备份旧版本和数据库，只保留最近 3 次）、`uninstall`、`version` | `cmd/sshdesktop/` |
 
-P0 的四个里程碑已经完成，M5 做稳定化并发布 v1.0.0，之后是 P1（Fail2ban 等安全工具、AI 助手、通行密钥等），详见 [docs/design.md](docs/design.md)。Docker、应用商店、计划任务、备份、网站、防火墙、SSH 设置等高权限功能只对本机开放。
+P0 的四个里程碑和 M5 稳定化已经完成并发布 v1.0.0，下一步是 P1（Fail2ban 等安全工具、AI 助手、通行密钥等），详见 [docs/design.md](docs/design.md)。Docker、应用商店、计划任务、备份、网站、防火墙、SSH 设置等高权限功能只对本机开放。
 
 ## 安装
 

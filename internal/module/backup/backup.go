@@ -681,6 +681,7 @@ func (s *Service) restore(c *gin.Context) {
 	}
 	t := s.d.Tasks.Start("backup.restore", "恢复："+path.Base(title), api.User(c).UserID, "local", func(ctx context.Context, t *task.Task) error {
 		out := t.Lines()
+		req.TaskID = t.ID()
 		res, err := s.d.Engine.Restore(ctx, req, out)
 		if err == nil && res.Snapshot != "" {
 			fmt.Fprintf(out, "如需撤销，可在“恢复前快照”中恢复 %s\n", res.Snapshot)

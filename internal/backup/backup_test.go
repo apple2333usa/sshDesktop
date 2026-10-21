@@ -399,6 +399,7 @@ func TestPanelBackupRestore(t *testing.T) {
 	e.ConfigPath = cfgPath
 	writeTree(t, filepath.Join(e.DataDir, "compose", "p1"), map[string]string{"docker-compose.yml": "services: {}"})
 	e.Store.SetSetting("marker", "before")
+	e.Store.DB.Create(&store.AuditLog{At: time.Now().Add(-time.Minute), Module: "test", Action: "before"})
 	tg := addTarget(t, e, "local", TargetConfig{Path: filepath.Join(t.TempDir(), "t")})
 	plan := store.BackupPlan{Name: "面板", Type: "panel", TargetIDs: itoa(tg.ID)}
 	e.Store.DB.Create(&plan)
@@ -409,7 +410,11 @@ func TestPanelBackupRestore(t *testing.T) {
 	var rec store.BackupRecord
 	e.Store.DB.Where("status = ?", "success").First(&rec)
 	e.Store.SetSetting("marker", "after")
-	res, err := e.Restore(ctx, RestoreRequest{RecordID: rec.ID}, nil)
+	time.Sleep(10 * time.Millisecond)
+	e.Store.DB.Create(&store.AuditLog{At: time.Now(), Module: "backup", Action: "restore"})
+	e.Store.DB.Create(&store.Task{ID: "t1", Kind: "backup.restore", Status: "success", CreatedAt: time.Now()})
+	e.Store.DB.Create(&store.TaskLog{TaskID: "t1", At: time.Now(), Line: "恢复完成"})
+	res, err := e.Restore(ctx, RestoreRequest{RecordID: rec.ID, TaskID: "t1"}, nil)
 	if err != nil || !res.NeedRestart {
 		t.Fatalf("%+v %v", res, err)
 	}
@@ -431,6 +436,34 @@ func TestPanelBackupRestore(t *testing.T) {
 	st.GetSetting("marker", &v)
 	if v != "before" {
 		t.Fatalf("恢复后的设置：%q", v)
+	}
+	// 恢复前快照、所恢复的备份记录、恢复任务和备份之后的审计日志带到新数据库
+	CarryOverPanelRestore(st, e.DataDir)
+	var recs []store.BackupRecord
+	st.DB.Order("id").Find(&recs)
+	if len(recs) != 2 || recs[0].Trigger != "snapshot" || recs[0].Key != res.Snapshot ||
+		recs[1].Key != rec.Key || recs[1].TargetID != tg.ID || recs[1].PlanID != plan.ID {
+		t.Fatalf("带过来的备份记录：%+v", recs)
+	}
+	var lines []string
+	st.DB.Model(&store.TaskLog{}).Where("task_id = ?", "t1").Pluck("line", &lines)
+	var tk store.Task
+	if st.DB.First(&tk, "id = ?", "t1").Error != nil || tk.Status != "success" || len(lines) != 1 {
+		t.Fatalf("恢复任务：%+v %v", tk, lines)
+	}
+	var acts []string
+	st.DB.Model(&store.AuditLog{}).Order("id").Pluck("action", &acts)
+	if strings.Join(acts, ",") != "before,restore" {
+		t.Fatalf("审计日志：%v", acts)
+	}
+	if _, err := os.Stat(filepath.Join(e.DataDir, carryFile)); err == nil {
+		t.Fatal("处理后应删除 " + carryFile)
+	}
+	CarryOverPanelRestore(st, e.DataDir) // 再次启动不应重复
+	var n int64
+	st.DB.Model(&store.AuditLog{}).Count(&n)
+	if n != 2 {
+		t.Fatalf("重复带入审计日志：%d", n)
 	}
 	if b, _ := os.ReadFile(cfgPath); string(b) != "port: 2\n" {
 		t.Fatal("不应覆盖当前配置")

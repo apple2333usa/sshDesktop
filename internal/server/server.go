@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/apple2333usa/sshdesktop/internal/agent"
@@ -161,7 +162,15 @@ func (s *Server) remoteFS(ctx context.Context, id string) (vfs.FS, func(), error
 // restartPanel 在 systemd 下重启面板（面板数据恢复后需要重启）。
 func restartPanel() {
 	slog.Warn("面板数据已恢复，正在重启面板")
-	if err := exec.Command("systemctl", "--no-block", "restart", "sshdesktop").Run(); err != nil {
+	err := exec.Command("systemctl", "--no-block", "restart", "sshdesktop").Run()
+	// 重启任务排队后 systemd 会立即停止服务，同一 cgroup 里还没退出的 systemctl 也会被 SIGTERM 结束，这不是失败
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() && ws.Signal() == syscall.SIGTERM {
+			return
+		}
+	}
+	if err != nil {
 		slog.Error("重启面板失败，请手动执行 systemctl restart sshdesktop", "err", err)
 	}
 }

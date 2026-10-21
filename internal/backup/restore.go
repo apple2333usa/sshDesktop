@@ -17,6 +17,7 @@ import (
 	"github.com/apple2333usa/sshdesktop/internal/docker"
 	"github.com/apple2333usa/sshdesktop/internal/store"
 	"github.com/apple2333usa/sshdesktop/internal/vfs"
+	"gorm.io/gorm"
 )
 
 // RestoreRequest 指定要恢复的备份：RecordID，或 TargetID + Key（目标中没有记录的文件，例如从其他服务器迁移）。
@@ -29,6 +30,8 @@ type RestoreRequest struct {
 	Dest string `json:"dest"`
 	// NoSnapshot 为 true 时恢复前不做快照
 	NoSnapshot bool `json:"noSnapshot"`
+	// TaskID 是执行恢复的后台任务，恢复面板数据时随恢复前快照一起带到恢复后的数据库
+	TaskID string `json:"-"`
 }
 
 // RestoreResult 描述恢复结果。NeedRestart 表示面板数据已准备好，需要重启面板生效。
@@ -394,6 +397,19 @@ func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 // PendingDir 是等待下次启动时应用的面板恢复数据。
 func PendingDir(dataDir string) string { return filepath.Join(dataDir, "restore-pending") }
 
+// carryFile 记录换库后要从原数据库带过来的内容，由 CarryOverPanelRestore 在打开新数据库后处理。
+const carryFile = "restore-carry.json"
+
+// panelCarry 写在等待目录的 READY 文件中。恢复前快照、所恢复的备份记录、恢复任务和备份之后的审计日志都晚于备份产生，
+// 新数据库里没有，换库后从原数据库带过来，否则快照无从撤销，审计日志也等于被删除了。
+type panelCarry struct {
+	Manifest Manifest `json:"manifest"`
+	Old      string   `json:"old,omitempty"` // 原数据移到的 restore-old-<时间> 目录
+	Snapshot string   `json:"snapshot,omitempty"`
+	RecordID uint     `json:"recordId,omitempty"`
+	TaskID   string   `json:"taskId,omitempty"`
+}
+
 func (e *Engine) restorePanel(ctx context.Context, m Manifest, req RestoreRequest,
 	open func() (io.Reader, func(), error), log func(string, ...any)) (*RestoreResult, error) {
 	res := &RestoreResult{Type: "panel", Dest: e.DataDir, NeedRestart: true}
@@ -429,7 +445,7 @@ func (e *Engine) restorePanel(ctx context.Context, m Manifest, req RestoreReques
 		res.Warning = "这份备份不含主密钥，且与本机的主密钥不同：服务器登录凭据、备份目标密钥和备份密码需要重新填写。"
 		log("%s", res.Warning)
 	}
-	b, _ := json.Marshal(m)
+	b, _ := json.Marshal(panelCarry{Manifest: m, Snapshot: res.Snapshot, RecordID: req.RecordID, TaskID: req.TaskID})
 	if err := os.WriteFile(filepath.Join(pending, "READY"), b, 0o600); err != nil {
 		return nil, err
 	}
@@ -441,7 +457,8 @@ func (e *Engine) restorePanel(ctx context.Context, m Manifest, req RestoreReques
 // 备份中的 config.yaml 不会覆盖当前配置（端口、域名、证书路径与服务器有关），而是保存为 config.yaml.from-backup 供参考。
 func ApplyPendingPanelRestore(dataDir, configPath string) error {
 	pending := PendingDir(dataDir)
-	if _, err := os.Stat(filepath.Join(pending, "READY")); err != nil {
+	ready, err := os.ReadFile(filepath.Join(pending, "READY"))
+	if err != nil {
 		if dirExists(pending) {
 			os.RemoveAll(pending) // 没准备完的残留
 		}
@@ -478,8 +495,112 @@ func ApplyPendingPanelRestore(dataDir, configPath string) error {
 		os.Rename(filepath.Join(pending, "config.yaml"), configPath+".from-backup")
 	}
 	os.RemoveAll(pending)
+	var carry panelCarry
+	if json.Unmarshal(ready, &carry) == nil {
+		carry.Old = old
+		b, _ := json.Marshal(carry)
+		os.WriteFile(filepath.Join(dataDir, carryFile), b, 0o600)
+	}
 	slog.Warn("已应用面板恢复数据，原数据保存在 "+old, "dir", old)
 	return nil
+}
+
+// CarryOverPanelRestore 在应用面板恢复数据、打开新数据库之后调用：从原数据库带过恢复前快照、所恢复的备份记录、
+// 恢复任务及其输出，以及新数据库里最后一条之后的审计日志。失败只记日志，不影响启动。
+func CarryOverPanelRestore(st *store.Store, dataDir string) {
+	p := filepath.Join(dataDir, carryFile)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return
+	}
+	os.Remove(p)
+	var c panelCarry
+	if json.Unmarshal(b, &c) != nil || c.Old == "" {
+		return
+	}
+	old, err := store.Open(filepath.Join(c.Old, "sshdesktop.db"))
+	if err != nil {
+		slog.Warn("无法打开恢复前的数据库，恢复前快照和恢复记录没有带过来", "err", err)
+		return
+	}
+	defer old.Close()
+	recs, tasks, audits := carryOver(old.DB, st.DB, c)
+	slog.Info("已从恢复前的数据库带过记录", "records", recs, "tasks", tasks, "audit", audits)
+}
+
+func carryOver(from, to *gorm.DB, c panelCarry) (recs, tasks, audits int) {
+	var list []store.BackupRecord
+	if c.Snapshot != "" {
+		var r store.BackupRecord
+		if from.Where(map[string]any{"trigger": "snapshot", "target_id": 0, "key": c.Snapshot}).First(&r).Error == nil {
+			list = append(list, r)
+		}
+	}
+	if c.RecordID > 0 {
+		var r store.BackupRecord
+		if from.First(&r, c.RecordID).Error == nil && sameTarget(from, to, r.TargetID) {
+			list = append(list, r)
+		}
+	}
+	for _, r := range list {
+		var n int64
+		to.Model(&store.BackupRecord{}).Where("target_id = ? AND key = ?", r.TargetID, r.Key).Count(&n)
+		if n > 0 {
+			continue
+		}
+		var plan store.BackupPlan
+		if r.PlanID > 0 && (to.First(&plan, r.PlanID).Error != nil || plan.Name != r.PlanName) {
+			r.PlanID = 0 // 新数据库里没有这个计划，或同一编号是别的计划
+		}
+		r.ID = 0
+		if to.Create(&r).Error == nil {
+			recs++
+		}
+	}
+	if c.TaskID != "" {
+		var t store.Task
+		var n int64
+		to.Model(&store.Task{}).Where("id = ?", c.TaskID).Count(&n)
+		if n == 0 && from.First(&t, "id = ?", c.TaskID).Error == nil && to.Create(&t).Error == nil {
+			tasks++
+			var logs []store.TaskLog
+			from.Where("task_id = ?", t.ID).Order("id").Find(&logs)
+			for i := range logs {
+				logs[i].ID = 0
+			}
+			if len(logs) > 0 {
+				to.CreateInBatches(&logs, 200)
+			}
+		}
+	}
+	var last store.AuditLog
+	q := from.Order("id")
+	if to.Order("at DESC, id DESC").First(&last).Error == nil {
+		q = q.Where("at > ?", last.At)
+	}
+	var rows []store.AuditLog
+	q.FindInBatches(&rows, 500, func(tx *gorm.DB, _ int) error {
+		cp := make([]store.AuditLog, len(rows)) // rows 的编号还要用来取下一批，不能改
+		for i, r := range rows {
+			r.ID = 0
+			cp[i] = r
+		}
+		if err := to.Create(&cp).Error; err != nil {
+			return err
+		}
+		audits += len(cp)
+		return nil
+	})
+	return
+}
+
+// sameTarget 判断备份记录的目标在新数据库里是否还是同一个（编号、类型和名称都相同）。
+func sameTarget(from, to *gorm.DB, id uint) bool {
+	if id == 0 {
+		return true
+	}
+	var a, b store.BackupTarget
+	return from.First(&a, id).Error == nil && to.First(&b, id).Error == nil && a.Type == b.Type && a.Name == b.Name
 }
 
 func fileExists(p string) bool {

@@ -77,3 +77,22 @@
     - Playwright e2e 通过：桌面 9 项、手机 1 项、M3 新增 4 项（`SD_NO_SYSTEMD=1`）。多服务器用例这次没有跑。
     - 计划任务测试另以非 root 用户运行通过。
   - 还没有在测试服务器上验证 Docker 一键安装、真实应用安装、S3 / WebDAV 云存储、系统 cron 定时触发和 systemd 下的面板恢复后自动重启。
+
+## 2026-10-21 09:25 +08:00 · 0.3.1 · 0.3.0 服务器实测与面板恢复的两处修正
+
+- 简介：发布 0.3.0 并在测试服务器上实测 M3，修正实测中发现的两个问题：
+  - 面板数据恢复后，systemd 重启面板时日志里误报“重启面板失败”（`err="signal: terminated"`）。原因是重启任务排队后 systemd 立即停止服务，同一 cgroup 里还没退出的 `systemctl` 也被 SIGTERM 结束。现在把这种情况视为正常。
+  - 面板数据恢复后，恢复前快照、所恢复的备份记录、恢复任务都看不到了（文件还在，但记录只在被换下的数据库里），备份之后的审计日志也随之回到备份时的状态，与“审计日志不能删除”相违背。现在换库时把这些信息写入 `restore-carry.json`，打开新数据库后从 `restore-old-<时间>/` 的原数据库带过来：快照记录、所恢复的记录（目标仍是同一个时）、恢复任务及其输出，以及新数据库最后一条之后的审计日志。
+- 对应文件：`internal/server/server.go`、`internal/backup/restore.go`、`internal/backup/backup_test.go`、`internal/module/backup/backup.go`、`cmd/sshdesktop/main.go`、`docs/design.md`、`VERSION`、`web/package.json`、`web/package-lock.json`、`README.md`、`docs/readme-history/README-v0.3.0-20261021-000500.md`
+- 验证与限制：
+  - 0.3.0 的发布与实测（测试服务器 Debian 13 aarch64，Docker 29.8.0 / Compose 5.5.1，从本地电脑经 SSH 操作）：
+    - 推送 v0.3.0 标签后 Release 工作流约 3 分钟完成，5 个文件齐全。
+    - `sshdesktop upgrade` 在线升级 0.2.1 → 0.3.0 约 10 秒，服务正常、日志无错误，0.2.1 对在线升级的修正得到验证。这台服务器没有装面板自身的 agent socket，未检查。
+    - 通过接口实测：
+      - Docker：服务器原本装有 Docker，一键安装未测。容器创建 / 停止 / 删除、Compose 项目创建 / 删除正常。
+      - 应用商店：同步 1Panel 默认源 264 个应用；安装 memos 0.31.0（只监听本机）6 秒完成，访问返回 200；停止和带数据卸载正常。
+      - 备份：本机、WebDAV、S3（后两者用 rclone 容器模拟）加密备份与恢复内容一致，排除规则生效，恢复前快照生成，缺少确认密码时被拒绝。SFTP 需要临时建 Linux 账号作为节点，这次没有测（集成测试中已用进程内 SSH 服务器覆盖）。
+      - 计划任务：每分钟一次的 Shell 任务 2.5 分钟内由系统 cron 自动执行 3 次，均成功；删除后 `/etc/cron.d/sshdesktop` 中的条目一并移除。
+      - 面板恢复：备份后的改动在恢复后消失，systemd 自动重启面板，停机约 0.1 秒；恢复后需要重新登录。上面两个问题就是在这一步发现的。
+    - 测试用的容器、应用、备份、计划任务和临时管理员（用 sqlite3 删除）都已清理；0.2.1 遗留的 `e2e-check` 已不在。服务器上留下了测试拉取的镜像（rclone、memos、alpine）和为测试安装的 jq、sqlite3。
+  - 0.3.1 的修正：容器内 `go vet`、`go test ./...` 通过。面板恢复测试新增了对带入快照记录、备份记录、恢复任务、审计日志和不重复带入的检查。systemd 重启时的误报修正需要在服务器上实测。

@@ -63,6 +63,7 @@ func serverCmd() *cobra.Command {
 				return err
 			}
 			defer st.Close()
+			backup.CarryOverPanelRestore(st, cfg.DataDir)
 			srv, err := server.New(cfg, st, sshdesktop.Version(), sshdesktop.WebFS())
 			if err != nil {
 				return err

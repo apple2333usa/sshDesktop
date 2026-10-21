@@ -230,3 +230,9 @@ func (f *firewalld) reload(ctx context.Context, active bool) error {
 	}
 	return nil
 }
+
+// firewalldRunning 用 firewall-cmd --state 判断 firewalld 是否在运行（不依赖 systemd）。
+func firewalldRunning(ctx context.Context) bool {
+	out, _ := run(ctx, "firewall-cmd", "--state")
+	return strings.TrimSpace(out) == "running"
+}

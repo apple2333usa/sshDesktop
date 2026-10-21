@@ -18,6 +18,24 @@ type Paths struct {
 	Cert     string // 证书与私钥（启用 HTTPS 时）
 	Key      string
 	Version  string // Nginx 版本，决定 http2 写法
+	IPv6     bool   // 系统支持 IPv6 时同时监听 [::]
+}
+
+// HasIPv6 表示系统支持 IPv6（有的 VPS 关闭了 IPv6，这时 listen [::] 会让 Nginx 启动失败）。
+func HasIPv6() bool {
+	ln, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
+func listen(b *strings.Builder, p Paths, port int, suffix string) {
+	fmt.Fprintf(b, "    listen %d%s;\n", port, suffix)
+	if p.IPv6 {
+		fmt.Fprintf(b, "    listen [::]:%d%s;\n", port, suffix)
+	}
 }
 
 var (
@@ -130,8 +148,10 @@ func Normalize(w *store.Website) error {
 	default:
 		return fmt.Errorf("网站类型只能是 proxy（反向代理）或 static（静态网站）")
 	}
-	if _, err := nginx.Parse("server {\n" + w.Custom + "\n}"); err != nil {
+	if ds, err := nginx.Parse("server {\n" + w.Custom + "\n}"); err != nil {
 		return fmt.Errorf("自定义配置有语法错误：%v", err)
+	} else if len(ds) != 1 {
+		return fmt.Errorf("自定义配置的大括号没有配对")
 	}
 	return nil
 }
@@ -193,7 +213,7 @@ func Render(w *store.Website, p Paths) string {
 	}
 
 	b.WriteString("server {\n")
-	fmt.Fprintf(&b, "    listen %d;\n    listen [::]:%d;\n", w.HTTPPort, w.HTTPPort)
+	listen(&b, p, w.HTTPPort, "")
 	fmt.Fprintf(&b, "    server_name %s;\n", names)
 	logs("    ")
 	acme()
@@ -215,7 +235,7 @@ func Render(w *store.Website, p Paths) string {
 		if w.HTTP2 && !h2 {
 			suffix = " http2"
 		}
-		fmt.Fprintf(&b, "    listen %d ssl%s;\n    listen [::]:%d ssl%s;\n", w.HTTPSPort, suffix, w.HTTPSPort, suffix)
+		listen(&b, p, w.HTTPSPort, " ssl"+suffix)
 		if h2 {
 			b.WriteString("    http2 on;\n")
 		}

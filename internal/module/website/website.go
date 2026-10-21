@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -42,16 +44,17 @@ type Deps struct {
 }
 
 type Service struct {
-	d   Deps
-	www string
-	mu  sync.Mutex // 修改 Nginx 配置时串行
+	d    Deps
+	www  string
+	ipv6 bool
+	mu   sync.Mutex // 修改 Nginx 配置时串行
 
 	// 测试中替换：宿主机 Nginx 的查找
 	findHost func() string
 }
 
 func New(d Deps) *Service {
-	return &Service{d: d, www: WWWRoot, findHost: nginx.FindHost}
+	return &Service{d: d, www: WWWRoot, findHost: nginx.FindHost, ipv6: HasIPv6()}
 }
 
 // SetCerts 设置证书模块提供的函数（两个模块互相依赖，创建后再设置）。
@@ -423,7 +426,7 @@ func confFile(rt nginx.Runtime, name string, enabled bool) string {
 }
 
 func (s *Service) paths(rt nginx.Runtime, w *store.Website) (Paths, error) {
-	p := Paths{AcmeRoot: s.AcmeRoot(), LogDir: rt.LogDir, Version: rt.Version}
+	p := Paths{AcmeRoot: s.AcmeRoot(), LogDir: rt.LogDir, Version: rt.Version, IPv6: s.ipv6}
 	if w.HTTPS {
 		cert, key, err := s.d.CertFiles(w.CertID)
 		if err != nil {
@@ -587,21 +590,58 @@ func (s *Service) PrepareChallenge(ctx context.Context, domains []string) (func(
 		}
 	}
 	if len(need) == 0 {
+		s.waitChallenge(ctx, domains)
 		return func() {}, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p := filepath.Join(rt.SiteDir, "zz-acme-challenge.conf")
-	conf := fmt.Sprintf("# 由 sshDesktop 临时添加：证书验证，完成后自动删除\nserver {\n    listen 80;\n    listen [::]:80;\n    server_name %s;\n    location ^~ /.well-known/acme-challenge/ {\n        root %s;\n        default_type text/plain;\n    }\n    location / {\n        return 404;\n    }\n}\n",
-		strings.Join(need, " "), nginx.Quote(s.AcmeRoot()))
+	v6 := ""
+	if s.ipv6 {
+		v6 = "    listen [::]:80;\n"
+	}
+	conf := fmt.Sprintf("# 由 sshDesktop 临时添加：证书验证，完成后自动删除\nserver {\n    listen 80;\n%s    server_name %s;\n    location ^~ /.well-known/acme-challenge/ {\n        root %s;\n        default_type text/plain;\n    }\n    location / {\n        return 404;\n    }\n}\n",
+		v6, strings.Join(need, " "), nginx.Quote(s.AcmeRoot()))
 	if err := s.commit(ctx, rt, map[string][]byte{p: []byte(conf)}); err != nil {
 		return nil, err
 	}
+	s.waitChallenge(ctx, domains)
 	return func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.commit(context.Background(), rt, map[string][]byte{p: nil})
 	}, nil
+}
+
+// waitChallenge 等到本机 80 端口能为这些域名提供验证文件（最多 10 秒）。
+// nginx -s reload 是异步的，刚改完配置就让 CA 来验证，请求可能还落在旧的工作进程上。
+func (s *Service) waitChallenge(ctx context.Context, domains []string) {
+	name := "sshdesktop-probe-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	dir := filepath.Join(s.AcmeRoot(), ".well-known", "acme-challenge")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	file := filepath.Join(dir, name)
+	if err := os.WriteFile(file, []byte(name), 0o644); err != nil {
+		return
+	}
+	defer os.Remove(file)
+	client := &http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
+	deadline := time.Now().Add(10 * time.Second)
+	for _, d := range domains {
+		for time.Now().Before(deadline) && ctx.Err() == nil {
+			req, _ := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1/.well-known/acme-challenge/"+name, nil)
+			req.Host = d
+			if resp, err := client.Do(req); err == nil {
+				b, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+				resp.Body.Close()
+				if resp.StatusCode == 200 && string(b) == name {
+					break
+				}
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
 }
 
 /* ---------- 站点 ---------- */

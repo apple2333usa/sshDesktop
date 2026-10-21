@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/apple2333usa/sshdesktop/internal/api"
@@ -286,6 +287,18 @@ func serviceName(ctx context.Context) string {
 func reloadService(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	if _, err := os.Stat("/run/systemd/system"); err != nil {
+		// 没有 systemd（容器等）：向 sshd 主进程发送 SIGHUP 重新加载
+		b, err := os.ReadFile("/run/sshd.pid")
+		if err != nil {
+			return errors.New("没有 systemd，也找不到 /run/sshd.pid，无法重新加载 sshd")
+		}
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+		if pid <= 1 {
+			return errors.New("/run/sshd.pid 内容无效")
+		}
+		return syscall.Kill(pid, syscall.SIGHUP)
+	}
 	if isActive(ctx, "ssh.socket") {
 		exec.CommandContext(ctx, "systemctl", "daemon-reload").Run()
 		if out, err := exec.CommandContext(ctx, "systemctl", "restart", "ssh.socket").CombinedOutput(); err != nil {

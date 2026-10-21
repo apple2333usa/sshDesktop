@@ -111,15 +111,10 @@ func has(bin string) bool {
 	return err == nil
 }
 
-func unitActive(ctx context.Context, unit string) bool {
-	out, _ := exec.CommandContext(ctx, "systemctl", "is-active", unit).Output()
-	return strings.TrimSpace(string(out)) == "active"
-}
-
 // detect 选择后端：正在运行的 firewalld 优先，其次 ufw（启用或未启用），再次未运行的 firewalld。
 func detect(ctx context.Context) backend {
 	fwd := has("firewall-cmd")
-	if fwd && unitActive(ctx, "firewalld") {
+	if fwd && firewalldRunning(ctx) {
 		return &firewalld{}
 	}
 	if has("ufw") {
@@ -274,7 +269,18 @@ func portRange(p string) (int, int, error) {
 	return lo, hi, nil
 }
 
+// servicePorts 是常见服务名（firewalld 服务、ufw 应用）对应的端口。
+var servicePorts = map[string]string{"ssh": "22", "OpenSSH": "22", "http": "80", "https": "443", "Nginx Full": "80,443", "Nginx HTTP": "80", "Nginx HTTPS": "443"}
+
 func covers(r Rule, port int) bool {
+	if r.Port == "" && r.Service != "" {
+		for _, p := range strings.Split(servicePorts[r.Service], ",") {
+			if p == strconv.Itoa(port) {
+				return true
+			}
+		}
+		return false
+	}
 	lo, hi, err := portRange(r.Port)
 	return err == nil && port >= lo && port <= hi && (r.Proto == "" || r.Proto == "tcp")
 }
@@ -282,7 +288,7 @@ func covers(r Rule, port int) bool {
 // openFor 表示规则列表中有放行端口 port（任意来源、TCP）的规则。
 func openFor(rules []Rule, port int) bool {
 	for _, r := range rules {
-		if r.Action == "allow" && r.Source == "" && r.Port != "" && covers(r, port) {
+		if r.Action == "allow" && r.Source == "" && covers(r, port) {
 			return true
 		}
 	}
@@ -328,7 +334,9 @@ type extra struct {
 	Active  bool   `json:"active"`
 }
 
-func (s *Service) change(c *gin.Context, title string, detail []string, apply func(ctx context.Context, b backend, st Status) error) {
+// change 执行一次修改。可能导致失联的修改（删除规则、添加拒绝规则、启用或停用）在 60 秒内确认，否则回滚；
+// safe 返回 true 时（防火墙未启用，或只是放行）直接生效。
+func (s *Service) change(c *gin.Context, title string, detail []string, safe func(Status) bool, apply func(ctx context.Context, b backend, st Status) error) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Minute)
 	defer cancel()
 	s.mu.Lock()
@@ -341,6 +349,14 @@ func (s *Service) change(c *gin.Context, title string, detail []string, apply fu
 	st, err := b.status(ctx)
 	if err != nil {
 		api.Fail(c, err)
+		return
+	}
+	if safe != nil && safe(st) && s.d.Pending.Get(pendingKind) == nil {
+		if err := apply(ctx, b, st); err != nil {
+			api.Fail(c, api.BadRequest(err.Error()))
+			return
+		}
+		api.OK(c, gin.H{"pending": nil})
 		return
 	}
 	files, err := pending.Snap(b.files(ctx)...)
@@ -413,7 +429,8 @@ func (s *Service) addRule(c *gin.Context) {
 		return
 	}
 	api.Target(c, describe(r))
-	s.change(c, "添加防火墙规则", []string{describe(r)}, func(ctx context.Context, b backend, st Status) error {
+	safe := func(st Status) bool { return !st.Active || r.Action == "allow" }
+	s.change(c, "添加防火墙规则", []string{describe(r)}, safe, func(ctx context.Context, b backend, st Status) error {
 		return b.add(ctx, r)
 	})
 }
@@ -444,7 +461,7 @@ func (s *Service) deleteRule(c *gin.Context) {
 	}
 	r := *target
 	api.Target(c, r.Raw)
-	s.change(c, "删除防火墙规则", []string{describe(r), r.Raw}, func(ctx context.Context, b backend, st Status) error {
+	s.change(c, "删除防火墙规则", []string{describe(r), r.Raw}, func(st Status) bool { return !st.Active }, func(ctx context.Context, b backend, st Status) error {
 		return b.remove(ctx, r)
 	})
 }
@@ -487,7 +504,8 @@ func (s *Service) enable(c *gin.Context) {
 	if !s.d.Confirm(c) {
 		return
 	}
-	s.change(c, title, detail, func(ctx context.Context, b backend, st Status) error {
+	// 停用不会导致失联，直接生效
+	s.change(c, title, detail, func(Status) bool { return !req.Enabled }, func(ctx context.Context, b backend, st Status) error {
 		if req.Enabled {
 			if err := s.ensureProtected(ctx, b, st); err != nil {
 				return err

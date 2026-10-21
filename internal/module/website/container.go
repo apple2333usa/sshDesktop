@@ -23,7 +23,11 @@ const (
 	openrestyImage   = "openresty/openresty:" + openrestyVersion + "-alpine"
 )
 
-func mainConfContainer(rt nginx.Runtime) string {
+func mainConfContainer(rt nginx.Runtime, ipv6 bool) string {
+	v6 := ""
+	if ipv6 {
+		v6 = "\n        listen [::]:80 default_server;"
+	}
 	return fmt.Sprintf(`# 由 sshDesktop 管理：面板安装的 OpenResty 的主配置。
 worker_processes auto;
 error_log %s warn;
@@ -46,15 +50,14 @@ http {
 
     # 不匹配任何站点的请求直接断开
     server {
-        listen 80 default_server;
-        listen [::]:80 default_server;
+        listen 80 default_server;%s
         server_name _;
         return 444;
     }
 
     include %s/*.conf;
 }
-`, nginx.Quote(filepath.Join(rt.LogDir, "error.log")), rt.SiteDir)
+`, nginx.Quote(filepath.Join(rt.LogDir, "error.log")), v6, rt.SiteDir)
 }
 
 func composeContainer(rt nginx.Runtime, dataDir string) string {
@@ -98,7 +101,7 @@ func (s *Service) setupContainer(ctx context.Context, t *task.Task) error {
 			return err
 		}
 	}
-	if err := pending.WriteFile(rt.Conf, []byte(mainConfContainer(rt)), 0o644); err != nil {
+	if err := pending.WriteFile(rt.Conf, []byte(mainConfContainer(rt, s.ipv6)), 0o644); err != nil {
 		return err
 	}
 	compose := filepath.Join(rt.ComposeDir, "compose.yaml")

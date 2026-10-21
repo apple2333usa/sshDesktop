@@ -50,28 +50,57 @@ type token struct {
 	line   int
 }
 
-func tokenize(src string) ([]token, error) {
-	var out []token
-	line := 1
-	i := 0
-	for i < len(src) {
+// lexer 逐个读取词法单元。Lua 块需要跳过原文，所以不能一次性切分整个文件。
+type lexer struct {
+	src  string
+	i    int
+	line int
+	buf  *token
+	err  error
+}
+
+// peek 返回下一个词法单元，没有更多时返回 nil。
+func (l *lexer) peek() *token {
+	if l.buf == nil && l.err == nil {
+		t, err := l.scan()
+		if err != nil {
+			l.err = err
+		} else {
+			l.buf = t
+		}
+	}
+	return l.buf
+}
+
+func (l *lexer) advance() { l.buf = nil }
+
+// seek 跳到原文的位置 i（之后从那里继续读）。
+func (l *lexer) seek(i int) {
+	l.line += strings.Count(l.src[l.i:i], "\n")
+	l.i, l.buf = i, nil
+}
+
+func (l *lexer) scan() (*token, error) {
+	src := l.src
+	for l.i < len(src) {
+		i := l.i
 		c := src[i]
 		switch {
 		case c == '\n':
-			line++
-			i++
+			l.line++
+			l.i++
 		case c == ' ' || c == '\t' || c == '\r':
-			i++
+			l.i++
 		case c == '#':
-			for i < len(src) && src[i] != '\n' {
-				i++
+			for l.i < len(src) && src[l.i] != '\n' {
+				l.i++
 			}
 		case c == '{' || c == '}' || c == ';':
-			out = append(out, token{s: string(c), start: i, end: i + 1, line: line})
-			i++
+			l.i++
+			return &token{s: string(c), start: i, end: i + 1, line: l.line}, nil
 		case c == '"' || c == '\'':
 			q := c
-			start, l := i, line
+			start, line := i, l.line
 			i++
 			var b strings.Builder
 			for i < len(src) && src[i] != q {
@@ -81,16 +110,16 @@ func tokenize(src string) ([]token, error) {
 					continue
 				}
 				if src[i] == '\n' {
-					line++
+					l.line++
 				}
 				b.WriteByte(src[i])
 				i++
 			}
 			if i >= len(src) {
-				return nil, fmt.Errorf("第 %d 行：引号没有闭合", l)
+				return nil, fmt.Errorf("第 %d 行：引号没有闭合", line)
 			}
-			i++
-			out = append(out, token{s: b.String(), quoted: true, start: start, end: i, line: l})
+			l.i = i + 1
+			return &token{s: b.String(), quoted: true, start: start, end: l.i, line: line}, nil
 		default:
 			start := i
 			var b strings.Builder
@@ -117,24 +146,24 @@ func tokenize(src string) ([]token, error) {
 				b.WriteByte(c)
 				i++
 			}
-			out = append(out, token{s: b.String(), start: start, end: i, line: line})
+			l.i = i
+			return &token{s: b.String(), start: start, end: i, line: l.line}, nil
 		}
 	}
-	return out, nil
+	return nil, nil
 }
 
 // Parse 解析配置文本。*_by_lua_block 等 Lua 块的内容不按 Nginx 语法解析，只记录位置。
 func Parse(src string) ([]*Directive, error) {
-	toks, err := tokenize(src)
-	if err != nil {
-		return nil, err
-	}
-	pos := 0
+	lx := &lexer{src: src, line: 1}
 	var parse func(depth int) ([]*Directive, error)
 	parse = func(depth int) ([]*Directive, error) {
 		out := []*Directive{}
-		for pos < len(toks) {
-			t := toks[pos]
+		for {
+			t := lx.peek()
+			if t == nil {
+				break
+			}
 			if t.s == "}" && !t.quoted {
 				if depth == 0 {
 					return nil, fmt.Errorf("第 %d 行：多余的 }", t.line)
@@ -145,23 +174,27 @@ func Parse(src string) ([]*Directive, error) {
 				return nil, fmt.Errorf("第 %d 行：缺少指令名", t.line)
 			}
 			d := &Directive{Name: t.s, Line: t.line, Start: t.start}
-			pos++
-			for pos < len(toks) {
-				a := toks[pos]
-				if !a.quoted && (a.s == ";" || a.s == "{" || a.s == "}") {
+			lx.advance()
+			var end *token
+			for {
+				a := lx.peek()
+				if a == nil || (!a.quoted && (a.s == ";" || a.s == "{" || a.s == "}")) {
+					end = a
 					break
 				}
 				d.Args = append(d.Args, a.s)
-				pos++
+				lx.advance()
 			}
-			if pos >= len(toks) {
+			if lx.err != nil {
+				return nil, lx.err
+			}
+			if end == nil {
 				return nil, fmt.Errorf("第 %d 行：%s 缺少 ; 或 {", t.line, d.Name)
 			}
-			end := toks[pos]
 			switch end.s {
 			case ";":
 				d.End = end.end
-				pos++
+				lx.advance()
 			case "}":
 				return nil, fmt.Errorf("第 %d 行：%s 缺少 ;", t.line, d.Name)
 			case "{":
@@ -174,24 +207,29 @@ func Parse(src string) ([]*Directive, error) {
 					}
 					d.Block = []*Directive{}
 					d.BlockClose, d.End = close, close+1
-					for pos < len(toks) && toks[pos].start <= close {
-						pos++
-					}
+					lx.seek(close + 1)
 					break
 				}
-				pos++
+				lx.advance()
 				block, err := parse(depth + 1)
 				if err != nil {
 					return nil, err
 				}
-				if pos >= len(toks) {
+				c := lx.peek()
+				if c == nil {
+					if lx.err != nil {
+						return nil, lx.err
+					}
 					return nil, fmt.Errorf("第 %d 行：%s 的 { 没有闭合", t.line, d.Name)
 				}
 				d.Block = block
-				d.BlockClose, d.End = toks[pos].start, toks[pos].end
-				pos++
+				d.BlockClose, d.End = c.start, c.end
+				lx.advance()
 			}
 			out = append(out, d)
+		}
+		if lx.err != nil {
+			return nil, lx.err
 		}
 		if depth > 0 {
 			return nil, fmt.Errorf("缺少 }")

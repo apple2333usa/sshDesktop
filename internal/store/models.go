@@ -357,11 +357,11 @@ type Website struct {
 	Root      string `json:"root"`
 	Index     string `gorm:"size:128" json:"index"`
 	HTTPPort  int    `json:"httpPort"`
-	HTTPSPort int    `json:"httpsPort"`
-	HTTPS     bool   `json:"https"`
+	HTTPSPort int    `gorm:"column:https_port" json:"httpsPort"`
+	HTTPS     bool   `gorm:"column:https" json:"https"`
 	CertID    uint   `gorm:"index" json:"certId"`
 	// ForceHTTPS HTTP 跳转到 HTTPS；HSTS 仅在强制跳转时生效
-	ForceHTTPS bool   `json:"forceHttps"`
+	ForceHTTPS bool   `gorm:"column:force_https" json:"forceHttps"`
 	HTTP2      bool   `json:"http2"`
 	HSTS       bool   `json:"hsts"`
 	AccessLog  bool   `json:"accessLog"`
@@ -383,9 +383,9 @@ type Certificate struct {
 	ID        uint   `gorm:"primaryKey" json:"id"`
 	Domains   string `gorm:"type:text" json:"domains"` // 空格分隔
 	Source    string `gorm:"size:16" json:"source"`
-	CA        string `gorm:"size:32" json:"ca"`        // letsencrypt / letsencrypt-staging / zerossl / custom
-	CAURL     string `json:"caUrl"`                    // custom 时的 ACME 目录地址
-	Challenge string `gorm:"size:16" json:"challenge"` // http / dns
+	CA        string `gorm:"size:32" json:"ca"`          // letsencrypt / letsencrypt-staging / zerossl / custom
+	CAURL     string `gorm:"column:ca_url" json:"caUrl"` // custom 时的 ACME 目录地址
+	Challenge string `gorm:"size:16" json:"challenge"`   // http / dns
 	// DNSAccountID 为 DNS 验证使用的 DNS 账号
 	DNSAccountID uint       `json:"dnsAccountId"`
 	KeyType      string     `gorm:"size:16" json:"keyType"` // ec256 / ec384 / rsa2048 / rsa4096
@@ -416,7 +416,7 @@ type DNSAccount struct {
 // AcmeAccount 是 ACME 账号（每个 CA 一个），私钥加密保存。
 type AcmeAccount struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
-	CAURL        string    `gorm:"uniqueIndex" json:"caUrl"`
+	CAURL        string    `gorm:"column:ca_url;uniqueIndex" json:"caUrl"`
 	Email        string    `json:"email"`
 	Key          []byte    `json:"-"`
 	Registration string    `gorm:"type:text" json:"-"`

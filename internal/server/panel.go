@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,7 +26,7 @@ import (
 )
 
 // 面板访问方式：仅本机（HTTP，经 SSH 隧道访问）或公网（域名 + HTTPS）。切换后必须在 60 秒内
-// 从新地址登录并确认，否则自动回到原来的方式，避免证书或网络问题导致面板失联。
+// 从新地址确认，否则自动回到原来的方式，避免证书或网络问题导致面板失联。
 
 const panelPendingKind = "panel"
 
@@ -258,7 +261,14 @@ func (s *Server) accessChange(c *gin.Context) {
 		return
 	}
 	*s.cfg = next
-	api.OK(c, gin.H{"pending": res, "url": accessURL(&next)})
+	// 新地址往往是另一个域名，浏览器在那里没有登录状态：用一次性令牌确认，确认后再登录
+	tok := make([]byte, 24)
+	rand.Read(tok)
+	s.httpMu.Lock()
+	s.accessToken = hex.EncodeToString(tok)
+	confirmURL := accessURL(&next) + "?confirm-access=" + s.accessToken
+	s.httpMu.Unlock()
+	api.OK(c, gin.H{"pending": res, "url": accessURL(&next), "confirmUrl": confirmURL})
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		if err := s.listen(); err != nil {
@@ -293,6 +303,38 @@ func (s *Server) accessConfirm(c *gin.Context) {
 		api.Fail(c, err)
 		return
 	}
+	api.OK(c, nil)
+}
+
+// accessConfirmToken 用切换时返回的一次性令牌确认（不需要登录），同样必须从新地址发起。
+func (s *Server) accessConfirmToken(c *gin.Context) {
+	var req struct {
+		Token string `json:"token"`
+	}
+	if !api.Bind(c, &req) {
+		return
+	}
+	s.httpMu.Lock()
+	tok := s.accessToken
+	s.httpMu.Unlock()
+	p := s.pending.Get(panelPendingKind)
+	if p == nil || tok == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(req.Token)) != 1 {
+		api.Fail(c, api.Err(404, api.CodePendingChange, "没有待确认的访问方式修改，可能已经超时回滚"))
+		return
+	}
+	if s.cfg.Public() != (c.Request.TLS != nil) {
+		api.Fail(c, api.BadRequest("请在新的访问地址确认"))
+		return
+	}
+	if err := s.pending.Confirm(panelPendingKind, p.ID); err != nil {
+		api.Fail(c, err)
+		return
+	}
+	s.httpMu.Lock()
+	s.accessToken = ""
+	s.httpMu.Unlock()
+	s.audit.Write(store.AuditLog{At: time.Now(), UserID: p.UserID, Username: p.Username, Node: "local", Module: "settings",
+		Action: "panel-access-confirm", Target: accessURL(s.cfg), Success: true, IP: c.ClientIP()})
 	api.OK(c, nil)
 }
 
@@ -351,6 +393,7 @@ func (s *Server) registerPanel(v1 *gin.RouterGroup, settings gin.HandlerFunc) {
 	v1.PUT("/panel/access", settings, a("settings", "panel-access"), s.accessChange)
 	v1.POST("/panel/access/confirm", settings, a("settings", "panel-access-confirm"), s.accessConfirm)
 	v1.POST("/panel/access/revert", settings, a("settings", "panel-access-revert"), s.accessRevert)
+	v1.POST("/panel/access/confirm-token", s.accessConfirmToken)
 	v1.GET("/pending", s.login, func(c *gin.Context) {
 		out := []*pending.Change{}
 		for _, k := range []string{panelPendingKind, "firewall", "sshd"} {

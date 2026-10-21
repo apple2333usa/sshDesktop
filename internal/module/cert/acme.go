@@ -140,7 +140,12 @@ func (h taskLogger) Handle(_ context.Context, r slog.Record) error {
 	var b strings.Builder
 	b.WriteString(r.Message)
 	r.Attrs(func(a slog.Attr) bool {
-		fmt.Fprintf(&b, " %s=%v", a.Key, a.Value)
+		v := a.Value.Resolve()
+		if v.Kind() == slog.KindDuration {
+			fmt.Fprintf(&b, " %s=%s", a.Key, v.Duration().Round(time.Millisecond))
+		} else {
+			fmt.Fprintf(&b, " %s=%v", a.Key, v)
+		}
 		return true
 	})
 	h.log("%s", b.String())

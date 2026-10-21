@@ -90,6 +90,8 @@ type Server struct {
 	srv     *http.Server
 	httpErr chan error
 	certs   certLoader
+	// accessToken 是面板访问方式切换后在新地址确认用的一次性令牌（只在内存中）
+	accessToken string
 }
 
 func New(cfg *config.Config, st *store.Store, version string, web fs.FS) (*Server, error) {

@@ -95,7 +95,7 @@ type Change struct {
 	Username string    `json:"username"`
 	Started  time.Time `json:"started"`
 	Deadline time.Time `json:"deadline"`
-	Files    []File    `json:"files"`
+	Files    []File    `json:"-"` // 不在接口中返回（可能含配置文件内容），保存到磁盘时单独写入
 	// Extra 是模块自己的恢复信息（例如 SSH 改端口的阶段）
 	Extra json.RawMessage `json:"extra,omitempty"`
 
@@ -139,11 +139,13 @@ func (m *Manager) Handle(kind string, h Handler) {
 	if err != nil {
 		return
 	}
-	var c Change
-	if json.Unmarshal(b, &c) != nil {
+	var disk onDisk
+	if json.Unmarshal(b, &disk) != nil {
 		os.Remove(m.file(kind))
 		return
 	}
+	c := disk.Change
+	c.Files = disk.Files
 	slog.Warn("面板重启前有未确认的修改，已自动回滚", "kind", kind, "title", c.Title)
 	err = m.restore(&c, h)
 	os.Remove(m.file(kind))
@@ -191,11 +193,17 @@ func (m *Manager) persist(c *Change) error {
 	if err := os.MkdirAll(m.dir, 0o700); err != nil {
 		return err
 	}
-	b, err := json.Marshal(c)
+	b, err := json.Marshal(onDisk{Change: *c, Files: c.Files})
 	if err != nil {
 		return err
 	}
 	return WriteFile(m.file(c.Kind), b, 0o600)
+}
+
+// onDisk 是保存到磁盘的格式：Change 加上快照文件。
+type onDisk struct {
+	Change
+	Files []File `json:"files"`
 }
 
 // Update 在等待期间更新恢复信息（例如追加快照文件）。

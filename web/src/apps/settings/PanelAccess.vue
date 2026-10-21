@@ -117,6 +117,7 @@ function goNew() {
         <p>{{ t('access.switchingText', { n: left }) }}</p>
         <p class="sd-mono url">{{ switching.url }}</p>
         <p class="sd-muted small">{{ t('access.switchingHint', { old: current }) }}</p>
+        <p class="sd-muted small">{{ t('access.oldCloses') }}</p>
       </template>
       <template #footer>
         <div class="foot">

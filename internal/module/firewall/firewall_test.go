@@ -129,3 +129,27 @@ func TestGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestManagers(t *testing.T) {
+	raw := `*filter
+:INPUT ACCEPT [0:0]
+:1PANEL_INPUT - [0:0]
+:f2b-sshd - [0:0]
+-A INPUT -j 1PANEL_INPUT
+-A INPUT -p tcp -m multiport --dports 22 -j f2b-sshd
+`
+	m := managers(raw)
+	if strings.Join(m, ",") != "1Panel,fail2ban" {
+		t.Fatalf("%v", m)
+	}
+	notes := strings.Join(noneNotes(raw, m), "\n")
+	if strings.Contains(notes, "建议：") || !strings.Contains(notes, "不建议在这里安装") || !strings.Contains(notes, "fail2ban") {
+		t.Fatal(notes)
+	}
+	if m := managers("-A INPUT -p tcp --dport 22 -j ACCEPT\n"); len(m) != 0 {
+		t.Fatalf("%v", m)
+	}
+	if notes := strings.Join(noneNotes("-A INPUT -j ACCEPT\n", nil), "\n"); !strings.Contains(notes, "建议：") {
+		t.Fatal(notes)
+	}
+}

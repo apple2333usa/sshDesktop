@@ -216,7 +216,8 @@ func (s *Server) accessChange(c *gin.Context) {
 		next.Domain = req.Domain
 		next.HTTPS = config.HTTPS{Enabled: true, Cert: cert, Key: key, CertID: req.CertID}
 	} else {
-		next.HTTPS = config.HTTPS{}
+		// 域名只在公网 HTTPS 时使用，切回仅本机时一并清掉
+		next.Domain, next.HTTPS = "", config.HTTPS{}
 	}
 	if err := next.Validate(); err != nil {
 		api.Fail(c, api.BadRequest(err.Error()))

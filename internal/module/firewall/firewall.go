@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -55,6 +56,7 @@ type Status struct {
 	Raw       string   `json:"raw,omitempty"`       // none：iptables / nft 规则原文
 	RawTool   string   `json:"rawTool,omitempty"`   // iptables / nftables
 	Installed []string `json:"installed,omitempty"` // 已安装但未启用的工具
+	Managers  []string `json:"managers,omitempty"`  // 规则中发现的其他管理者：1Panel / fail2ban
 	Notes     []string `json:"notes,omitempty"`
 }
 
@@ -146,7 +148,8 @@ func (s *Service) Status(ctx context.Context) Status {
 	if b == nil {
 		st := Status{Backend: "none", Rules: []Rule{}}
 		st.RawTool, st.Raw = rawRules(ctx)
-		st.Notes = noneNotes(st.Raw)
+		st.Managers = managers(st.Raw)
+		st.Notes = noneNotes(st.Raw, st.Managers)
 		return st
 	}
 	st, err := b.status(ctx)
@@ -156,13 +159,30 @@ func (s *Service) Status(ctx context.Context) Status {
 	if st.Rules == nil {
 		st.Rules = []Rule{}
 	}
+	tool, raw := rawRules(ctx)
 	if !st.Active {
-		st.RawTool, st.Raw = rawRules(ctx)
+		st.RawTool, st.Raw = tool, raw
 		if strings.TrimSpace(st.Raw) != "" {
 			st.Notes = append(st.Notes, "防火墙未启用，下面是系统中现有的 "+st.RawTool+" 规则（只读）。启用后由 "+b.name()+" 管理。")
 		}
 	}
+	st.Managers = managers(raw)
+	if slices.Contains(st.Managers, "1Panel") {
+		st.Notes = append(st.Notes, "检测到 1Panel 的规则链（1PANEL_*）。1Panel 也会管理 "+b.name()+"，请只在一个面板中修改防火墙规则，避免互相覆盖。")
+	}
 	return st
+}
+
+// managers 从规则原文中识别其他管理防火墙的程序。
+func managers(raw string) []string {
+	var out []string
+	if strings.Contains(raw, "1PANEL") {
+		out = append(out, "1Panel")
+	}
+	if strings.Contains(raw, "f2b-") {
+		out = append(out, "fail2ban")
+	}
+	return out
 }
 
 // rawRules 读取 iptables / nftables 规则原文（只读展示）。
@@ -180,8 +200,20 @@ func rawRules(ctx context.Context) (string, string) {
 	return "", ""
 }
 
-func noneNotes(raw string) []string {
+func noneNotes(raw string, mgrs []string) []string {
 	notes := []string{"没有安装 ufw 或 firewalld，面板无法管理防火墙。"}
+	if slices.Contains(mgrs, "1Panel") {
+		// 另一个面板在直接管理 iptables，再装 ufw 会让两套规则互相覆盖
+		notes = append(notes,
+			"检测到 1Panel 的规则链（1PANEL_*），防火墙正由 1Panel 管理（下方只读展示）。不建议在这里安装 ufw 或 firewalld：两个面板会各自改写规则，可能互相覆盖甚至断开 SSH。请继续在 1Panel 中管理防火墙。")
+		if slices.Contains(mgrs, "fail2ban") {
+			notes = append(notes, "f2b-* 规则链是 fail2ban 的封禁规则，由 fail2ban 自动维护。")
+		}
+		return notes
+	}
+	if slices.Contains(mgrs, "fail2ban") {
+		notes = append(notes, "f2b-* 规则链是 fail2ban 的封禁规则，由 fail2ban 自动维护，与 ufw / firewalld 可以共存。")
+	}
 	if strings.TrimSpace(raw) != "" {
 		notes = append(notes,
 			"系统中有手写的 iptables / nftables 规则（下方只读展示，例如 Oracle Cloud 默认镜像）。直接改写这些规则容易与云平台的默认规则冲突，面板不做修改。",

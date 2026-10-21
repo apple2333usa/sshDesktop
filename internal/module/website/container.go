@@ -69,6 +69,11 @@ services:
     container_name: %[1]s
     restart: unless-stopped
     network_mode: host
+    # 默认 1024 个文件句柄不够 worker_connections 4096 用，Nginx 每次加载都会警告
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     command: ["openresty", "-c", "%[3]s", "-g", "daemon off;"]
     volumes:
       - %[4]s:%[4]s

@@ -620,6 +620,7 @@ curl -fsSL <安装脚本地址> | sudo bash
 | --- | --- |
 | `sshdesktop info` | 显示版本、端口、访问方式、数据目录 |
 | `sshdesktop user reset-password <用户名>` | 重置密码 |
+| `sshdesktop user delete <用户名>` | 删除账号并注销其会话（保留最后一个启用中的管理员） |
 | `sshdesktop config set port <端口>` | 修改端口 |
 | `sshdesktop config unset https` | 关闭 HTTPS，回到仅本机访问（证书出问题时自救） |
 | `sshdesktop upgrade` / `uninstall` | 升级 / 卸载（卸载可选保留数据） |

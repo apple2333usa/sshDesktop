@@ -33,9 +33,10 @@ async function taskDone(page: Page) {
   await log.locator('.n-card-header__close').click()
 }
 
-/** 通过本机 80 端口访问站点（带 Host 头）。 */
-function viaNginx(scheme: 'http' | 'https') {
-  const args = ['-sS', '--noproxy', '*', '-k', '-o', '/dev/null', '-w', '%{http_code}', '--resolve', `${DOMAIN}:${scheme === 'http' ? 80 : 443}:127.0.0.1`, `${scheme}://${DOMAIN}/`]
+/** 通过本机 80 端口访问站点（带 Host 头），返回状态码；body 为 true 时返回响应正文。 */
+function viaNginx(scheme: 'http' | 'https', body = false) {
+  const out = body ? [] : ['-o', '/dev/null', '-w', '%{http_code}']
+  const args = ['-sS', '--noproxy', '*', '-k', ...out, '--resolve', `${DOMAIN}:${scheme === 'http' ? 80 : 443}:127.0.0.1`, `${scheme}://${DOMAIN}/`]
   return execFileSync('curl', args, { encoding: 'utf8' })
 }
 
@@ -96,7 +97,8 @@ test('网站：接管 Nginx，新建反向代理，上传证书启用 HTTPS，�
   await page.locator('.n-dropdown-option', { hasText: /^删除$/ }).click()
   await confirm(page)
   await expect(row).toHaveCount(0)
-  await expect.poll(() => viaNginx('http')).not.toBe('200')
+  // 默认站点可能也返回 200（例如 Nginx 欢迎页），按正文判断不再代理到面板
+  await expect.poll(() => viaNginx('http', true)).not.toContain('<title>sshDesktop</title>')
   await tab(win, '证书')
   await certRow.locator('button', { hasText: '…' }).click()
   await page.locator('.n-dropdown-option', { hasText: /^删除$/ }).click()

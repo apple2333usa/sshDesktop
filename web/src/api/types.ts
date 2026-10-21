@@ -908,6 +908,7 @@ export interface FirewallStatus {
   raw?: string
   rawTool?: string
   installed?: string[]
+  managers?: string[]
   notes?: string[]
 }
 

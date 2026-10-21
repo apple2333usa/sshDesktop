@@ -175,8 +175,11 @@ test('备份：本机目标、加密备份目录、恢复到其他目录，再�
   await page.getByTestId('plan-name').locator('input').fill(NAME)
   await page.getByTestId('plan-source').locator('input').fill(src)
   await page.locator('.n-form-item', { hasText: '排除' }).locator('textarea').fill('*.log')
-  await page.getByTestId('plan-targets').click()
-  await page.locator('.n-base-select-option', { hasText: NAME }).click()
+  // 只有一个备份目标时表单会默认选中它，再点一次会取消选择
+  if (!(await page.getByTestId('plan-targets').textContent())?.includes(NAME)) {
+    await page.getByTestId('plan-targets').click()
+    await page.locator('.n-base-select-option', { hasText: NAME }).click()
+  }
   await expect(page.getByTestId('plan-targets')).toContainText(NAME)
   await page.getByTestId('plan-name').click()
   await page.locator('.n-form-item', { hasText: '定时' }).getByTestId('cron-schedule').locator('input').fill('')

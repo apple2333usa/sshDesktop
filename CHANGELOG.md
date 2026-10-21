@@ -186,3 +186,35 @@
       - M3 的应用商店用例有一次因同步按钮与自动同步冲突而失败，单独重跑通过。它与本次改动无关，没有处理。
       - 多服务器用例这次没有跑。
   - DNS 验证没有用真实 DNS 服务商测试（按约定跳过）。还没有在测试服务器上实测，见下一条记录。
+
+## 2026-10-21 16:26 +08:00 · 0.4.0 · 0.4.0 服务器实测
+
+- 简介：发布 0.4.0，在测试服务器（Debian 13 arm64，已装 1Panel 和 fail2ban，没有 Nginx、ufw、firewalld）上实测 M4。只补记验证结果，发现的问题在 0.4.1 修复。
+- 对应文件：`CHANGELOG.md`
+- 验证与限制：
+  - PR #11 的 CI 通过后合并，推送 v0.4.0 标签，Release 的 5 个文件齐全；`sshdesktop upgrade` 从 0.3.1 升级到 0.4.0 成功，日志没有新的错误。
+  - 外网访问 TCP 30080 不通，数据包没有到达服务器（云服务商安全组），因此网站、证书、SSH、面板访问方式都在服务器本机测试，证书用上传的自签证书，DNS 验证按约定跳过。
+  - 网站：安装面板管理的 OpenResty 容器，建反向代理站点，启用 HTTPS 后 HTTP/2 生效；网站备份与恢复（证书一并恢复）正常。
+  - 防火墙：没有 ufw / firewalld，只读展示 iptables 规则。
+  - SSH：改端口后撤销、超时自动回滚、增删授权密钥，全程 5522 端口没有断开。
+  - 面板访问方式：换端口并在新地址确认、超时回滚、等待期间重启后回滚、切换到公网 HTTPS 再切回仅本机。
+  - 发现的问题：保存站点后立即访问偶尔仍是旧配置；接口修改站点不带启用状态会把站点停用；OpenResty 容器启动时警告文件句柄不足；防火墙页面在 1Panel 管理 iptables 的机器上建议安装 ufw；切回仅本机后域名配置残留；没有命令行删除账号的办法；撤销和超时回滚的日志措辞相同。
+  - 测试数据已清理：站点、证书、备份、OpenResty（容器、镜像、目录、设置）、临时管理员和服务器上的临时目录都已删除，残留的域名配置用 `sshdesktop config unset domain` 清除。SSH 配置、`authorized_keys` 和 iptables 与测试前一致，1Panel 和 fail2ban 没有改动。
+
+## 2026-10-21 16:34 +08:00 · 0.4.1 · 0.4.0 实测问题修复
+
+- 简介：修复 0.4.0 在测试服务器上发现的问题。
+  - Nginx 重新加载只是向主进程发信号，命令返回时新工作进程可能还没起来。现在等到工作进程全部换新（最多 10 秒）再返回，保存站点后立即访问就是新配置。
+  - 修改站点时保留原来的启用状态，启用 / 停用只通过专门的接口。
+  - OpenResty 容器的文件句柄上限提高到 65535，消除 `worker_connections` 超过上限的警告。
+  - 面板访问方式切回仅本机时清除域名和 HTTPS 配置；切换窗口提示原地址会在确认后约 2 秒关闭。
+  - 防火墙识别 1Panel（`1PANEL_*`）和 fail2ban（`f2b-*`）的规则链：由 1Panel 管理时不再建议安装 ufw，并隐藏安装按钮；已有 ufw / firewalld 时提示只在一个面板中修改规则。体检识别已安装的 1Panel、宝塔面板并说明共存注意事项。
+  - 网站或面板备份不加密时，表单提示备份包含证书私钥，建议加密。
+  - 新增 `sshdesktop user delete <用户名>`：注销会话、删除桌面布局后删除账号，不能删除最后一个启用中的管理员，默认要输入 yes 确认（`-y` 跳过）。
+  - 用户撤销修改时日志记为“修改已撤销”，与超时回滚区分。
+  - 备份计划表单在取回列表后再决定是否默认选中唯一的备份目标；e2e 中 M3 备份用例因此偶发失败（默认选中后再点一次反而取消），用例改为未选中时才选择。M4 网站用例删除站点后改为按正文判断不再代理到面板（默认站点也可能返回 200）。
+- 对应文件：`internal/nginx/runtime.go`、`internal/nginx/workers.go`、`internal/nginx/workers_test.go`、`internal/module/website/website.go`、`internal/module/website/container.go`、`internal/server/panel.go`、`internal/pending/pending.go`、`internal/module/firewall/firewall.go`、`internal/module/firewall/firewall_test.go`、`internal/module/inspect/inspect.go`、`internal/module/inspect/inspect_test.go`、`cmd/sshdesktop/cli.go`、`cmd/sshdesktop/cli_test.go`、`web/src/apps/settings/PanelAccess.vue`、`web/src/apps/firewall/FirewallApp.vue`、`web/src/apps/backup/BackupApp.vue`、`web/src/api/types.ts`、`web/src/i18n/zh-CN.ts`、`web/e2e/m3.spec.ts`、`web/e2e/m4.spec.ts`、`VERSION`、`web/package.json`、`web/package-lock.json`、`docs/design.md`、`README.md`、`docs/readme-history/README-v0.4.0-20261021-143400.md`
+- 验证与限制：
+  - 云端容器中 `go vet`、`go test ./...` 通过。新增测试：重新加载后立即请求得到新配置（临时 nginx 连续重新加载 5 次，去掉等待时失败）、1Panel / fail2ban 规则链识别、其他面板识别、命令行删除账号（含保护最后一个管理员）。
+  - 前端类型检查、vitest 11 项通过；OpenResty 容器的 Compose 文件用 `docker compose config` 校验通过。
+  - Playwright e2e（`SD_M3=1 SD_M4=1 SD_NO_SYSTEMD=1`）在全新面板上 19 项全部通过，多服务器用例没有跑。

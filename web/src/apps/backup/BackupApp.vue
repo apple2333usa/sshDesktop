@@ -158,7 +158,6 @@ const sites = ref<Website[]>([])
 
 async function openForm(p?: BackupPlan) {
   editing.value = p ?? null
-  form.value = p ? { ...p, password: '' } : { ...blank(), targetIds: targets.value.length === 1 ? [targets.value[0].id] : [] }
   // 先取应用和网站列表再打开表单，避免表单打开后选项变化打断正在进行的选择
   const list = <T,>(perm: string, url: string) => (session.has(perm) ? api.get<T[]>(url).catch(() => [] as T[]) : Promise.resolve([] as T[]))
   const [a, w] = await Promise.all([
@@ -167,6 +166,8 @@ async function openForm(p?: BackupPlan) {
   ])
   apps.value = a
   sites.value = w
+  // 只有一个备份目标时默认选中（等列表取回后再判断，刚添加的目标也算在内）
+  form.value = p ? { ...p, password: '' } : { ...blank(), targetIds: targets.value.length === 1 ? [targets.value[0].id] : [] }
   showForm.value = true
 }
 
@@ -420,6 +421,7 @@ const recCols = computed<DataTableColumns<BackupRecord>>(() => [
         <NFormItem :label="t('backup.encrypt')">
           <NSwitch v-model:value="form.encrypt" data-testid="plan-encrypt" />
         </NFormItem>
+        <NAlert v-if="!form.encrypt && (form.type === 'website' || form.type === 'panel')" type="warning" :bordered="false" class="falert" data-testid="plan-plain-warn">{{ t('backup.plainSecretWarn') }}</NAlert>
         <NFormItem v-if="form.encrypt" :label="t('backup.password')" :required="!editing?.hasPassword">
           <div class="col">
             <NInput
